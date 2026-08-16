@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Request a Title{% endblock %}
+{% block title %}Solicitar una película o serie{% endblock %}
 
 {% block content %}
 <style>
@@ -33,28 +33,30 @@
   .rp-btn { margin-top: auto; border: none; border-radius: 0.6rem; padding: 0.5rem; font-weight: 800; font-size: 0.82rem;
             cursor: pointer; background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--primary); }
   .rp-btn:hover { background: var(--primary); color: var(--bg); }
+  .rp-btn.is-available { background: rgba(34,197,94,0.18); color: #22c55e; cursor: default; }
+  .rp-btn.is-available:hover { background: rgba(34,197,94,0.18); color: #22c55e; }
   .rp-empty { text-align: center; color: var(--text-sec); padding: 2rem 1rem; }
   .rp-spinner { text-align: center; color: var(--text-sec); padding: 2rem; }
 </style>
 
 <div class="rp-shell">
   <div class="rp-hero">
-    <h1>Request a Movie or Show</h1>
-    <p>Can't find something? Search below and send a request — we'll try to add it.</p>
+    <h1>Solicita una película o serie</h1>
+    <p>¿No encuentras algo? Búsquelo abajo y envía una solicitud — intentaremos agregarlo.</p>
     <form class="rp-search" onsubmit="doSearch(event)">
-      <input id="rp-q" type="text" placeholder="Search by name, IMDb ID (tt…) or TMDB ID" autocomplete="off">
+      <input id="rp-q" type="text" placeholder="Buscar por nombre, IMDb ID (tt…) o TMDB ID" autocomplete="off">
       <button type="submit"><i class="fa-solid fa-magnifying-glass"></i></button>
     </form>
-    <p class="rp-hint">Examples: <b>Inception</b> · <b>tt1375666</b> · <b>27205</b></p>
+    <p class="rp-hint">Ejemplos: <b>Inception</b> · <b>tt1375666</b> · <b>27205</b></p>
   </div>
 
   <div id="rp-results-wrap" style="display:none">
-    <div class="rp-section-title"><i class="fa-solid fa-list"></i> Search results</div>
+    <div class="rp-section-title"><i class="fa-solid fa-list"></i> Resultados de búsqueda</div>
     <div id="rp-results" class="rp-grid"></div>
   </div>
 
   <div id="rp-popular-wrap">
-    <div class="rp-section-title"><i class="fa-solid fa-fire" style="color:#f59e0b"></i> Most Requested</div>
+    <div class="rp-section-title"><i class="fa-solid fa-fire" style="color:#f59e0b"></i> Más solicitados</div>
     <div id="rp-popular" class="rp-grid"></div>
   </div>
 </div>
@@ -76,11 +78,15 @@ function posterHtml(r, extra) {
 
 function resultCard(r, idx) {
   const yr = r.year ? ` (${esc(r.year)})` : '';
+  const available = r.available;
+  const btn = available
+    ? `<button class="rp-btn is-available" disabled><i class="fa-solid fa-circle-check"></i> Disponible</button>`
+    : `<button class="rp-btn" onclick="sendRequest(${idx})"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`;
   return `<div class="rp-card">
     ${posterHtml(r)}
     <div class="rp-body">
       <div class="rp-title">${esc(r.title)}${yr}</div>
-      <button class="rp-btn" onclick="sendRequest(${idx})"><i class="fa-solid fa-paper-plane"></i> Request</button>
+      ${btn}
     </div>
   </div>`;
 }
@@ -97,20 +103,20 @@ function popularCard(r) {
 async function doSearch(e) {
   if (e) e.preventDefault();
   const q = document.getElementById('rp-q').value.trim();
-  if (q.length < 2) { showToast('Type at least 2 characters.', 'info'); return; }
+  if (q.length < 2) { showToast('Escribe al menos 2 caracteres.', 'info'); return; }
   const wrap = document.getElementById('rp-results-wrap');
   const box = document.getElementById('rp-results');
   wrap.style.display = '';
-  box.innerHTML = `<div class="rp-spinner" style="grid-column:1/-1"><i class="fa-solid fa-spinner fa-spin"></i> Searching…</div>`;
+  box.innerHTML = `<div class="rp-spinner" style="grid-column:1/-1"><i class="fa-solid fa-spinner fa-spin"></i> Buscando…</div>`;
   try {
     const res = await fetch('/api/request/search?q=' + encodeURIComponent(q));
     const data = await res.json();
     searchResults = data.data || [];
     box.innerHTML = searchResults.length
       ? searchResults.map((r, i) => resultCard(r, i)).join('')
-      : `<div class="rp-empty" style="grid-column:1/-1">No matches found. Try a different name or an IMDb/TMDB ID.</div>`;
+      : `<div class="rp-empty" style="grid-column:1/-1">No se encontraron coincidencias. Prueba otro nombre o un ID de IMDb/TMDB.</div>`;
   } catch (err) {
-    box.innerHTML = `<div class="rp-empty" style="grid-column:1/-1;color:#ef4444">Search failed. Please try again.</div>`;
+    box.innerHTML = `<div class="rp-empty" style="grid-column:1/-1;color:#ef4444">La búsqueda falló. Inténtalo de nuevo.</div>`;
   }
 }
 
@@ -127,19 +133,19 @@ async function sendRequest(idx) {
     });
     const data = await res.json();
     const map = {
-      created:            ['🎉 Request submitted! We\'ll try to add it soon.', 'success', 'Requested'],
-      added:              ['👍 Added your vote — this was already requested.', 'success', 'Requested'],
-      reopened:           ['🔄 Request re-opened. Thanks!', 'success', 'Requested'],
-      already_available:  ['✅ Good news — this is already in the library!', 'info', 'Available'],
-      banned:             ['🚫 This title has been banned and can\'t be requested.', 'error', 'Not allowed'],
-      invalid:            ['⚠️ Could not identify this title.', 'error', 'Error'],
+      created:            ['🎉 ¡Solicitud enviada! Intentaremos agregarlo pronto.', 'success', 'Solicitado'],
+      added:              ['👍 Sumaste tu voto — ya estaba solicitado.', 'success', 'Solicitado'],
+      reopened:           ['🔄 Solicitud reabierta. ¡Gracias!', 'success', 'Solicitado'],
+      already_available:  ['✅ Buenas noticias — ¡ya está en la biblioteca!', 'info', 'Disponible'],
+      banned:             ['🚫 Este título está bloqueado y no se puede solicitar.', 'error', 'No permitido'],
+      invalid:            ['⚠️ No se pudo identificar este título.', 'error', 'Error'],
     };
-    const m = map[data.reason] || (data.ok ? ['Request submitted!', 'success', 'Requested']
-                                            : ['Something went wrong.', 'error', 'Error']);
+    const m = map[data.reason] || (data.ok ? ['¡Solicitud enviada!', 'success', 'Solicitado']
+                                            : ['Algo salió mal.', 'error', 'Error']);
     showToast(m[0], m[1], m[2]);
     if (data.ok) loadPopular();
   } catch (err) {
-    showToast('Request failed. Please try again.', 'error', 'Error');
+    showToast('La solicitud falló. Inténtalo de nuevo.', 'error', 'Error');
   }
 }
 
