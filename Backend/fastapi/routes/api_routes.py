@@ -36,6 +36,7 @@ from Backend.helper.requests_manager import (
     list_requests,
     popular_pending,
     search_titles,
+    search_titles_enriched,
     set_status,
     submit_request,
 )
@@ -622,7 +623,7 @@ async def clear_stream_analytics_api() -> dict:
 #----- Public: search titles to request (by name, IMDb id or TMDB id)
 async def request_search_api(q: str) -> dict:
     try:
-        return {"status": "success", "data": await search_titles(q)}
+        return {"status": "success", "data": await search_titles_enriched(q)}
     except Exception as e:
         LOGGER.error(f"Request search error: {e}")
         return {"status": "error", "message": str(e), "data": []}
