@@ -51,6 +51,9 @@ _DEFAULTS: Dict[str, Any] = {
     "fanart_shuffle": False,
     "fanart_shuffle_interval": 5,
     "fanart_low_res_poster": True,
+    # Display/search language for the Latino community (TMDB client requests this
+    # language so Spanish titles surface as the primary match).
+    "match_language": "es-MX",
 }
 
 
@@ -263,6 +266,10 @@ class Settings:
     @property
     def extra_databases(self) -> List[str]:
         return list(self._d.get("extra_databases") or [])
+
+    @property
+    def match_language(self) -> str:
+        return str(self._d.get("match_language") or "es-MX").strip() or "es-MX"
 
     #----- Serialisation
     def to_dict(self) -> Dict[str, Any]:
