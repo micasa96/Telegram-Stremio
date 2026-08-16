@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import traceback
+import unicodedata
 
 import PTN
 from guessit import guessit as _guessit
@@ -27,7 +28,45 @@ _EXPLICIT_NXNN_RE = re.compile(r"(?i)\b\d{1,2}x\d{2,3}\b")
 _EXPLICIT_SEASON_WORD_RE = re.compile(r"(?i)\b(?:season|series)\s*0*\d{1,2}\b")
 
 
+
+
+def fix_encoding(text: str) -> str:
+    """Repair garbled accents that arrive from Telegram / DB storage.
+
+    Two real-world cases for the Latino community:
+      1. Mojibake: UTF-8 bytes decoded as latin-1 / cp1252 (e.g. 'Cómo' ->
+         'CÃ³mo'). Re-encode and decode back to UTF-8. The result is already
+         a proper composed accented letter, so nothing more is needed.
+      2. Decomposed/standalone accents: a base letter followed by a stray
+         combining accent char (often stored as a separate glyph) so 'Cómo'
+         shows as 'C mo'. Here we recompose via NFC so the accented letter
+         is whole again (C + ´ + o -> ó), instead of dropping the accent.
+
+    Falls back to the input untouched when nothing applies.
+    """
+    if not text:
+        return text
+    s = text
+    # 1) mojibake repair (e.g. 'CÃ³mo' -> 'Cómo')
+    try:
+        repaired = s.encode("latin-1").decode("utf-8")
+        if repaired != s:
+            s = repaired
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    # 2) recompose decomposed/standalone accents (C + ´ + o -> 'Cómo').
+    #    NFC merges a base letter with its following combining mark; str.replace
+    #    then cleans any combining marks that have no base letter to attach to
+    #    (true noise) without harming already-composed accented letters.
+    s = unicodedata.normalize("NFC", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return s
+
+
 def parse_media_name(name: str) -> dict:
+    # Repair garbled accents (mojibake / decomposed) before any parsing so
+    # Latino filenames like 'Cómo matar a mamá' match TMDB correctly.
+    name = fix_encoding(name or "")
     try:
         ptn = PTN.parse(name) or {}
     except Exception as e:
