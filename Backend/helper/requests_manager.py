@@ -231,6 +231,24 @@ async def media_exists(media_type: str, tmdb_id, imdb_id, title: str, year=None)
     return False
 
 
+#----- Enrich search results with an "already in library?" flag so the
+#----- public Request page can show "Disponible" instead of "Request".
+async def search_titles_enriched(query: str) -> list:
+    results = await search_titles(query)
+    for r in results:
+        try:
+            r["available"] = await media_exists(
+                r.get("media_type", "movie"),
+                r.get("tmdb_id"),
+                r.get("imdb_id"),
+                r.get("title", ""),
+                r.get("year"),
+            )
+        except Exception:
+            r["available"] = False
+    return results
+
+
 #----- Public submit: de-duplicated per title, honouring banned/denied/uploaded state
 async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, client_ip) -> dict:
     media_type = _norm_type(media_type)
