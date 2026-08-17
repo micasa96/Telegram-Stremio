@@ -306,38 +306,88 @@ def format_released_date(media):
     return None
 
 
-#----- Build a Stremio stream display name/title from a filename
+#----- Resolution tag shown on the stream button (short label with sigla)
+_RES_TAG_MAP = [
+    (re.compile(r"2160p|4k|uhd", re.IGNORECASE), "4K (2160p)"),
+    (re.compile(r"1080p|fhd", re.IGNORECASE), "FHD (1080p)"),
+    (re.compile(r"720p|\bhd\b", re.IGNORECASE), "HD (720p)"),
+    (re.compile(r"480p|\bsd\b", re.IGNORECASE), "SD (480p)"),
+    (re.compile(r"360p", re.IGNORECASE), "360p"),
+]
+
+#----- Language / audio-track tags detected from the filename (order = display priority)
+_LANG_TAG_MAP = [
+    (re.compile(r"\b(lat(?:ino)?)\b", re.IGNORECASE), "Latino"),
+    (re.compile(r"\b(cast(?:ellano)?|espa[nñ]ol|esp)\b", re.IGNORECASE), "Español"),
+    (re.compile(r"\b(dual(?:[\s._-]*audio)?)\b", re.IGNORECASE), "Dual"),
+    (re.compile(r"\b(multi(?:[\s._-]*audio)?)\b", re.IGNORECASE), "Multi"),
+    (re.compile(r"\b(ingl[ée]s|english|eng)\b", re.IGNORECASE), "Inglés"),
+]
+
+#----- Known source/rip tags (kept short — no release group / site branding)
+_SOURCE_TAG_MAP = [
+    (re.compile(r"web[\s._-]?dl", re.IGNORECASE), "WEB-DL"),
+    (re.compile(r"web[\s._-]?rip", re.IGNORECASE), "WEBRip"),
+    (re.compile(r"blu[\s._-]?ray|bd[\s._-]?rip", re.IGNORECASE), "BluRay"),
+    (re.compile(r"hd[\s._-]?rip", re.IGNORECASE), "HDRip"),
+    (re.compile(r"hdtv", re.IGNORECASE), "HDTV"),
+    (re.compile(r"\bdvd\b", re.IGNORECASE), "DVD"),
+    (re.compile(r"\bcam\b", re.IGNORECASE), "CAM"),
+]
+
+
+def _resolution_tag(filename: str, quality: str) -> str:
+    for rx, label in _RES_TAG_MAP:
+        if rx.search(filename) or (quality and rx.search(str(quality))):
+            return label
+    return str(quality) if quality else "HD"
+
+
+def _detect_language_tags(filename: str) -> str:
+    found = []
+    for rx, label in _LANG_TAG_MAP:
+        if rx.search(filename) and label not in found:
+            found.append(label)
+    return " + ".join(found)
+
+
+def _detect_source_tag(filename: str) -> str:
+    for rx, label in _SOURCE_TAG_MAP:
+        if rx.search(filename):
+            return label
+    return ""
+
+
+#----- Build a Stremio stream display name/title from a filename.
+#----- Deliberately never exposes the raw filename (site/release-group branding) —
+#----- only clean tags: resolution, source, codec, language, size.
 def format_stream_details(filename: str, quality: str, size: str, is_split: bool = False) -> tuple[str, str]:
     size_emoji = "📦" if is_split else "💾"
+    filename = filename or ""
+
     try:
         parsed = PTN.parse(filename)
     except Exception:
-        return (f"Telegram {quality}", f"📁 {filename}\n{size_emoji} {size}")
+        parsed = {}
 
-    codec_parts = []
-    if parsed.get("codec"):
-        codec_parts.append(f"🎥 {parsed.get('codec')}")
-    if parsed.get("bitDepth"):
-        codec_parts.append(f"🌈 {parsed.get('bitDepth')}bit")
-    if parsed.get("audio"):
-        codec_parts.append(f"🔊 {parsed.get('audio')}")
-    if parsed.get("encoder"):
-        codec_parts.append(f"👤 {parsed.get('encoder')}")
+    res_tag = _resolution_tag(filename, quality)
+    stream_name = f"🎬 {res_tag}"
 
-    codec_info = " ".join(codec_parts) if codec_parts else ""
+    source_tag = _detect_source_tag(filename)
+    codec = parsed.get("codec") or ""
+    top_line_parts = [p for p in (source_tag, codec) if p]
+    top_line = " · ".join(top_line_parts)
 
-    resolution = parsed.get("resolution", quality)
-    quality_type = parsed.get("quality", "")
-    stream_name = f"Telegram {resolution} {quality_type}".strip()
+    lang_tag = _detect_language_tags(filename)
 
-    stream_title_parts = [
-        f"📁 {filename}",
-        f"{size_emoji} {size}",
-    ]
-    if codec_info:
-        stream_title_parts.append(codec_info)
+    title_lines = []
+    if top_line:
+        title_lines.append(f"🌐 {top_line}")
+    if lang_tag:
+        title_lines.append(f"🔊 {lang_tag}")
+    title_lines.append(f"{size_emoji} {size}")
 
-    stream_title = "\n".join(stream_title_parts)
+    stream_title = "\n".join(title_lines)
     return (stream_name, stream_title)
 
 
