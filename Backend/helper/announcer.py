@@ -6,6 +6,7 @@ from pyrogram.errors import FloodWait, MessageDeleteForbidden, MessageIdInvalid
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from Backend import db
+from Backend.helper.metadata.providers.tmdb import get_tmdb_client
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
 from Backend.pyrofork.bot import StreamBot, get_streambot_url
@@ -22,24 +23,24 @@ def _resolve_chat(value: str):
         return value
 
 
-#----- Atomically claim a title so it is announced at most once; returns True if newly claimed
-async def _claim(media_type: str, tmdb_id) -> bool:
-    if not tmdb_id:
+#----- Atomically claim a key so it is announced at most once; returns True if newly claimed
+async def _claim(key: str) -> bool:
+    if not key:
         return False
     result = await db.dbs["tracking"]["announced"].update_one(
-        {"_id": f"{media_type}:{tmdb_id}"},
+        {"_id": key},
         {"$setOnInsert": {"at": datetime.utcnow()}},
         upsert=True,
     )
     return result.upserted_id is not None
 
 
-async def _store_announcement_msg(media_type: str, tmdb_id, chat_id, message_id: int) -> None:
-    if not tmdb_id or not message_id:
+async def _store_announcement_msg(key: str, chat_id, message_id: int) -> None:
+    if not key or not message_id:
         return
     try:
         await db.dbs["tracking"]["announced"].update_one(
-            {"_id": f"{media_type}:{tmdb_id}"},
+            {"_id": key},
             {"$set": {"chat_id": chat_id, "message_id": message_id, "at": datetime.utcnow()}},
             upsert=True,
         )
@@ -47,14 +48,111 @@ async def _store_announcement_msg(media_type: str, tmdb_id, chat_id, message_id:
         LOGGER.warning(f"Failed to store announcement message id: {e}")
 
 
-def _build_caption(info: dict) -> str:
+#----- TMDB helpers (TMDB is the source of truth; we never infer "airing" from counts) -----
+_TMDB_STATUS_CACHE = {}
+_TMDB_SEASON_TOTAL_CACHE = {}
+
+
+async def _tmdb_series_status(tmdb_id) -> str:
+    """Return the TV series status string from TMDB (e.g. 'Ended', 'Returning Series')."""
+    if not tmdb_id:
+        return ""
+    try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        return ""
+    if tmdb_id in _TMDB_STATUS_CACHE:
+        return _TMDB_STATUS_CACHE[tmdb_id]
+    status = ""
+    try:
+        client = get_tmdb_client()
+        show = await client.tv(tmdb_id).details()
+        status = (getattr(show, "status", None) or "").strip()
+    except Exception as e:
+        LOGGER.warning(f"TMDB series status failed for {tmdb_id}: {e}")
+    _TMDB_STATUS_CACHE[tmdb_id] = status
+    return status
+
+
+async def _tmdb_season_total(tmdb_id, season_number) -> int:
+    """Total number of episodes TMDB lists for this season (source of truth for 'complete')."""
+    if not tmdb_id or not season_number:
+        return 0
+    try:
+        tmdb_id = int(tmdb_id)
+        season_number = int(season_number)
+    except (TypeError, ValueError):
+        return 0
+    cache_key = (tmdb_id, season_number)
+    if cache_key in _TMDB_SEASON_TOTAL_CACHE:
+        return _TMDB_SEASON_TOTAL_CACHE[cache_key]
+    total = 0
+    try:
+        client = get_tmdb_client()
+        season = await client.tv(tmdb_id).season(season_number).details()
+        episodes = getattr(season, "episodes", None) or []
+        total = len(episodes)
+    except Exception as e:
+        LOGGER.warning(f"TMDB season total failed for {tmdb_id} S{season_number}: {e}")
+    _TMDB_SEASON_TOTAL_CACHE[cache_key] = total
+    return total
+
+
+async def _count_season_episodes(tmdb_id, season_number) -> int:
+    """How many episodes of this season already have a telegram source in the DB."""
+    if not tmdb_id or not season_number:
+        return 0
+    try:
+        tmdb_id = int(tmdb_id)
+        season_number = int(season_number)
+    except (TypeError, ValueError):
+        return 0
+    total = 0
+    try:
+        for i in range(1, db.current_db_index + 1):
+            coll = db.dbs[f"storage_{i}"]["tv"]
+            doc = await coll.find_one({"tmdb_id": tmdb_id}, {"seasons": 1})
+            if not doc:
+                continue
+            for s in doc.get("seasons", []):
+                if int(s.get("season_number", 0)) != season_number:
+                    continue
+                for ep in s.get("episodes", []):
+                    if ep.get("telegram"):
+                        total += 1
+    except Exception as e:
+        LOGGER.warning(f"_count_season_episodes failed: {e}")
+    return total
+
+
+def _build_caption(info: dict, season_complete: bool = False, ep_count: int = 0) -> str:
     is_tv = info.get("media_type") == "tv"
     title = info.get("title") or "Unknown"
-    header = f"{'📺' if is_tv else '🎬'} <b>{title}</b>"
+
+    if season_complete:
+        season_number = int(info.get("season_number", 0) or 0)
+        header = f"📺 <b>Temporada completa</b>\n\n<b>{title}</b>"
+        lines = [header, ""]
+        if season_number:
+            lines.append(f"📦 <b>{ep_count} episodios agregados</b> de la temporada {season_number}")
+        else:
+            lines.append(f"📦 <b>{ep_count} episodios agregados</b>")
+        if info.get("quality"):
+            lines.append(f"📶 <b>Calidad:</b> {info['quality']}")
+        return "\n".join(lines)
+
+    # Single-episode / movie announcement (style of the reference screenshot)
+    icon = "📺" if is_tv else "🎬"
+    label = "Nuevo episodio" if is_tv else "Nueva película"
+    header = f"{icon} <b>{label}</b>\n\n<b>{title}</b>"
     if info.get("year"):
         header += f" ({info['year']})"
 
-    lines = [header, "", f"🗂 <b>Type:</b> {'Series' if is_tv else 'Movie'}"]
+    lines = [header, ""]
+    if is_tv and info.get("season_number") and info.get("episode_number"):
+        se = f"S{int(info['season_number']):02d}E{int(info['episode_number']):02d}"
+        ep_title = info.get("episode_title")
+        lines.append(f"📺 <b>{se}</b>" + (f" — {ep_title}" if ep_title else ""))
     if info.get("rate"):
         try:
             lines.append(f"⭐ <b>Rating:</b> {round(float(info['rate']), 1)}")
@@ -62,9 +160,9 @@ def _build_caption(info: dict) -> str:
             pass
     genres = info.get("genres") or []
     if genres:
-        lines.append(f"🎭 <b>Genres:</b> {', '.join(genres[:4])}")
+        lines.append(f"🎭 <b>Géneros:</b> {', '.join(genres[:4])}")
     if info.get("quality"):
-        lines.append(f"📶 <b>Quality:</b> {info['quality']}")
+        lines.append(f"📶 <b>Calidad:</b> {info['quality']}")
 
     desc = (info.get("description") or "").strip()
     if desc:
@@ -95,10 +193,42 @@ async def _announce(info: dict) -> None:
     chat = _resolve_chat(settings.announcement_channel)
     if not settings.announce_new_content or chat is None:
         return
-    if not await _claim(info.get("media_type"), info.get("tmdb_id")):
+
+    media_type = info.get("media_type")
+    tmdb_id = info.get("tmdb_id")
+    season_number = info.get("season_number")
+
+    season_complete = False
+    ep_count = 0
+    announce_key = None
+
+    if media_type == "tv" and season_number:
+        status = await _tmdb_series_status(tmdb_id)
+        is_ended = status.lower() in ("ended", "canceled", "cancelled")
+
+        if is_ended:
+            # Series finale / finished show: only announce when the season is complete.
+            total = await _tmdb_season_total(tmdb_id, season_number)
+            count = await _count_season_episodes(tmdb_id, season_number)
+            count += 1  # this episode was just inserted
+            if total and count >= total:
+                season_complete = True
+                ep_count = count
+                announce_key = f"tv_complete:{tmdb_id}:{season_number}"
+            else:
+                # Not complete yet -> wait for the last episode. Silence per-season.
+                return
+        else:
+            # Airing series: announce each episode, once per (tmdb, season, episode).
+            episode_number = info.get("episode_number")
+            announce_key = f"tv_ep:{tmdb_id}:{season_number}:{episode_number}"
+    else:
+        announce_key = f"{media_type}:{tmdb_id}"
+
+    if not await _claim(announce_key):
         return
 
-    caption = _build_caption(info)
+    caption = _build_caption(info, season_complete, ep_count)
     poster = info.get("backdrop") or info.get("poster")
     markup = _build_markup(info)
 
@@ -116,7 +246,7 @@ async def _announce(info: dict) -> None:
             sent = await StreamBot.send_message(chat, caption, parse_mode=ParseMode.HTML,
                                      reply_markup=markup, disable_web_page_preview=True)
         if sent is not None:
-            await _store_announcement_msg(info.get("media_type"), info.get("tmdb_id"), chat, sent.id)
+            await _store_announcement_msg(announce_key, chat, sent.id)
     except FloodWait as e:
         LOGGER.warning(f"Announcement FloodWait for {e.value}s")
     except Exception as e:
