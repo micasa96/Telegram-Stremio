@@ -153,7 +153,7 @@ class Settings:
     def delete_on_metadata_fail(self) -> bool:
         return bool(self._d.get("delete_on_metadata_fail", False))
 
-       @property
+    @property
     def announcement_channel(self) -> str:
         return str(self._d.get("announcement_channel") or "").strip()
 
