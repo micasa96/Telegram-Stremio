@@ -31,6 +31,9 @@ def _build_caption(doc: dict) -> str:
         header += f" ({doc['year']})"
 
     lines = [header, "", f"🗂 <b>Tipo:</b> {'Serie' if is_tv else 'Película'}"]
+    imdb_id = doc.get("imdb_id")
+    if imdb_id:
+        lines.append(f"🆔 <b>IMDb:</b> {imdb_id}")
     lines.append("👤 Pedido por un usuario en la página de Requests.")
     return "\n".join(lines)
 
@@ -43,6 +46,12 @@ def _build_markup(doc: dict):
         rows.append([InlineKeyboardButton(
             "🔎 Ver en TMDB",
             url=f"https://www.themoviedb.org/{media_path}/{tmdb_id}",
+        )])
+    imdb_id = doc.get("imdb_id")
+    if imdb_id:
+        rows.append([InlineKeyboardButton(
+            "🅰️ Ver en IMDb",
+            url=f"https://www.imdb.com/title/{imdb_id}",
         )])
     base = SettingsManager.current().base_url
     if base:
