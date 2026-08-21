@@ -911,6 +911,19 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
+
+        <label class="s-label" for="announcement_thread" style="margin-top:0.75rem">ANNOUNCEMENT THREAD ID <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <p style="font-size:0.78rem;color:var(--text-sec);margin-bottom:0.5rem">
+            <i class="fa-solid fa-circle-info"></i>
+            If the announcement channel is a <strong>forum group</strong>, paste the
+            <code>message_thread_id</code> of the topic where new-content cards should go
+            (e.g. the "Recién Agregados" topic). Leave empty to post in the group's main chat.
+        </p>
+        <div class="multi-item" style="margin-top:0.25rem">
+            <input type="text" id="announcement_thread" class="s-input"
+                value="{{ settings.announcement_thread or '' }}"
+                placeholder="123456 (topic id inside a forum group)">
+        </div>
     </div>
 </div>
 
@@ -955,6 +968,19 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
                 onclick="clearSingleChannel('request_notify_channel')" title="Remove">
                 <i class="fa-solid fa-xmark"></i>
             </button>
+        </div>
+
+        <label class="s-label" for="request_notify_thread" style="margin-top:0.75rem">REQUEST THREAD ID <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <p style="font-size:0.78rem;color:var(--text-sec);margin-bottom:0.5rem">
+            <i class="fa-solid fa-circle-info"></i>
+            If that chat is a <strong>forum group</strong>, paste the
+            <code>message_thread_id</code> of the topic where new requests should go
+            (e.g. the "Pedidos" topic). Leave empty to post in the group's main chat.
+        </p>
+        <div class="multi-item" style="margin-top:0.25rem">
+            <input type="text" id="request_notify_thread" class="s-input"
+                value="{{ settings.request_notify_thread or '' }}"
+                placeholder="123456 (topic id inside a forum group)">
         </div>
     </div>
 </div>
@@ -1583,6 +1609,8 @@ async function saveSettings() {
         skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
         notify_new_requests:           document.getElementById('notify_new_requests').checked,
         request_notify_channel:        (function(){const el=document.getElementById('request_notify_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
+        announcement_thread:          (document.getElementById('announcement_thread').value || '').trim(),
+        request_notify_thread:        (document.getElementById('request_notify_thread').value || '').trim(),
         delete_on_metadata_fail:       document.getElementById('delete_on_metadata_fail').checked,
     };
 

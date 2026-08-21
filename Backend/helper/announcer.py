@@ -23,6 +23,16 @@ def _resolve_chat(value: str):
         return value
 
 
+def _resolve_thread(value) -> int | None:
+    value = str(value or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 #----- Atomically claim a key so it is announced at most once; returns True if newly claimed
 async def _claim(key: str) -> bool:
     if not key:
@@ -193,6 +203,7 @@ async def _announce(info: dict) -> None:
     chat = _resolve_chat(settings.announcement_channel)
     if not settings.announce_new_content or chat is None:
         return
+    thread = _resolve_thread(settings.announcement_thread)
 
     media_type = info.get("media_type")
     tmdb_id = info.get("tmdb_id")
@@ -237,14 +248,16 @@ async def _announce(info: dict) -> None:
         if poster:
             try:
                 sent = await StreamBot.send_photo(chat, poster, caption=caption,
-                                           parse_mode=ParseMode.HTML, reply_markup=markup)
+                                       parse_mode=ParseMode.HTML, reply_markup=markup,
+                                       message_thread_id=thread)
             except FloodWait:
                 raise
             except Exception:
                 sent = None
         if sent is None:
             sent = await StreamBot.send_message(chat, caption, parse_mode=ParseMode.HTML,
-                                     reply_markup=markup, disable_web_page_preview=True)
+                                 reply_markup=markup, disable_web_page_preview=True,
+                                 message_thread_id=thread)
         if sent is not None:
             await _store_announcement_msg(announce_key, chat, sent.id)
     except FloodWait as e:

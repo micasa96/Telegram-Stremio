@@ -1920,7 +1920,8 @@ async def update_settings_api(payload: dict) -> dict:
     for key in ("tmdb_api", "base_url", "upstream_repo", "upstream_branch",
                 "admin_username", "admin_password", "session_secret", "http_proxy_url",
                 "mediaflow_password", "payment_instructions", "payment_qr_url",
-                "announcement_channel", "request_notify_channel", "skip_channel"):
+                "announcement_channel", "request_notify_channel", "skip_channel",
+                "announcement_thread", "request_notify_thread"):
         if key in payload and isinstance(payload[key], str):
             payload[key] = payload[key].strip()
 

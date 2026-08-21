@@ -23,6 +23,16 @@ def _resolve_chat(value: str):
         return value
 
 
+def _resolve_thread(value) -> int | None:
+    value = str(getattr(value, "request_notify_thread", value) or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def _build_caption(doc: dict) -> str:
     is_tv = doc.get("media_type") == "tv"
     title = doc.get("title") or "Unknown"
@@ -64,6 +74,7 @@ async def _notify(doc: dict) -> None:
     chat = _resolve_chat(settings.request_notify_channel)
     if not settings.notify_new_requests or chat is None:
         return
+    thread = _resolve_thread(settings.request_notify_thread)
 
     caption = _build_caption(doc)
     poster = doc.get("poster")
@@ -76,6 +87,7 @@ async def _notify(doc: dict) -> None:
                 sent = await StreamBot.send_photo(
                     chat, poster, caption=caption,
                     parse_mode=ParseMode.HTML, reply_markup=markup,
+                    message_thread_id=thread,
                 )
             except FloodWait:
                 raise
@@ -85,6 +97,7 @@ async def _notify(doc: dict) -> None:
             await StreamBot.send_message(
                 chat, caption, parse_mode=ParseMode.HTML,
                 reply_markup=markup, disable_web_page_preview=True,
+                message_thread_id=thread,
             )
     except FloodWait as e:
         LOGGER.warning(f"Request notification FloodWait for {e.value}s")
