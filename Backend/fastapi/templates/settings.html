@@ -1510,10 +1510,13 @@ async function saveSettings() {
     ];
     const acEl = document.getElementById('announcement_channel');
     const scEl = document.getElementById('skip_channel');
+    const rncEl = document.getElementById('request_notify_channel');
     const acId = (acEl.dataset.id || extractChannelId(acEl.value.trim()));
     const scId = (scEl.dataset.id || extractChannelId(scEl.value.trim()));
+    const rncId = (rncEl.dataset.id || extractChannelId(rncEl.value.trim()));
     if (acId) channelFields.push(acId);
     if (scId) channelFields.push(scId);
+    if (rncId) channelFields.push(rncId);
     for (const c of channelFields) {
         if (!isValidChannelId(c)) {
             alert('Only channel IDs in -100xxxxxxxxxx format are accepted: ' + c);
@@ -1526,6 +1529,10 @@ async function saveSettings() {
     }
     if (scEl.value.trim() && !scId) {
         alert('Skip channel must be -100xxxxxxxxxx format.');
+        return;
+    }
+    if (rncEl.value.trim() && !rncId) {
+        alert('Request notify channel must be -100xxxxxxxxxx format.');
         return;
     }
 
@@ -1574,6 +1581,8 @@ async function saveSettings() {
         announce_new_content:          document.getElementById('announce_new_content').checked,
         announcement_channel:          (function(){const el=document.getElementById('announcement_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
         skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
+        notify_new_requests:           document.getElementById('notify_new_requests').checked,
+        request_notify_channel:        (function(){const el=document.getElementById('request_notify_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
         delete_on_metadata_fail:       document.getElementById('delete_on_metadata_fail').checked,
     };
 
