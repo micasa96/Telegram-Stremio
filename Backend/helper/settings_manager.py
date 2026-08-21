@@ -42,6 +42,8 @@ _DEFAULTS: Dict[str, Any] = {
     "channel_titles": {},
     "announce_new_content": False,
     "announcement_channel": "",
+    "notify_new_requests": False,
+    "request_notify_channel": "",
     "skip_channel": "",
     "delete_on_metadata_fail": False,
     "better_poster_enabled": False,
@@ -151,9 +153,18 @@ class Settings:
     def delete_on_metadata_fail(self) -> bool:
         return bool(self._d.get("delete_on_metadata_fail", False))
 
-    @property
+       @property
     def announcement_channel(self) -> str:
         return str(self._d.get("announcement_channel") or "").strip()
+
+    @property
+    def notify_new_requests(self) -> bool:
+        return bool(self._d.get("notify_new_requests", False))
+
+    @property
+    def request_notify_channel(self) -> str:
+        return str(self._d.get("request_notify_channel") or "").strip()
+        
 
     @property
     def skip_channel(self) -> str:
