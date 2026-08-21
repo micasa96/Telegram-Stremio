@@ -166,6 +166,14 @@ class Settings:
     @property
     def request_notify_channel(self) -> str:
         return str(self._d.get("request_notify_channel") or "").strip()
+
+    @property
+    def announcement_thread(self) -> str:
+        return str(self._d.get("announcement_thread") or "").strip()
+
+    @property
+    def request_notify_thread(self) -> str:
+        return str(self._d.get("request_notify_thread") or "").strip()
         
 
     @property
