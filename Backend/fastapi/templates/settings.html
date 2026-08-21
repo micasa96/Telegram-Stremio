@@ -915,6 +915,51 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
 </div>
 
 
+<!-- ── Request Notifications (new requests from public Request page) ── -->
+<div class="settings-card">
+    <h2><i class="fa-solid fa-bell"></i> Request Notifications</h2>
+
+    <label class="toggle-wrap">
+        <input type="checkbox" class="toggle-input" id="notify_new_requests"
+            {% if settings.notify_new_requests %}checked{% endif %}
+            onchange="toggleRequestNotifyFields()">
+        <span class="toggle-track"></span>
+        <span class="toggle-label">
+            <strong>Notify New Requests</strong>
+            <span style="color:var(--text-sec);font-size:0.8rem;display:block">
+                Send a Telegram message to a channel/group every time a brand
+                new title is requested from the public Request page.
+            </span>
+        </span>
+    </label>
+
+    <div id="request-notify-fields"
+         style="{% if not settings.notify_new_requests %}display:none{% endif %}">
+        <hr class="divider">
+        <label class="s-label" for="request_notify_channel">REQUEST NOTIFY CHANNEL</label>
+        <p style="font-size:0.78rem;color:var(--text-sec);margin-bottom:0.75rem">
+            <i class="fa-solid fa-circle-info"></i>
+            Channel/group ID in <code>-100xxxxxxxxxx</code> format.
+            The bot must be an <strong>admin</strong> in that chat.
+        </p>
+        <div class="multi-item" style="margin-top:0.25rem">
+            {% set rnc_t = (settings.channel_titles or {}).get(settings.request_notify_channel|string, settings.request_notify_channel) %}
+            <input type="text" id="request_notify_channel" class="s-input"
+                value="{{ rnc_t if settings.request_notify_channel else '' }}"
+                data-id="{{ settings.request_notify_channel }}"
+                {% if settings.request_notify_channel %}readonly{% endif %}
+                placeholder="-100xxxxxxxxxx"
+                oninput="if(!this.readOnly){this.dataset.id='';}">
+            <button type="button" class="remove-btn" id="request_notify_channel_clear"
+                style="{% if not settings.request_notify_channel %}display:none{% endif %}"
+                onclick="clearSingleChannel('request_notify_channel')" title="Remove">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+
     <!-- ── Skip Channel (metadata failures) ────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-inbox"></i> Skip Channel</h2>
@@ -1224,6 +1269,14 @@ function toggleGlobalSearchFields() {
 function toggleAnnouncementFields() {
     const enabled = document.getElementById('announce_new_content').checked;
     const fields = document.getElementById('announcement-fields');
+    if (fields) {
+        fields.style.display = enabled ? '' : 'none';
+    }
+}
+
+function toggleRequestNotifyFields() {
+    const enabled = document.getElementById('notify_new_requests').checked;
+    const fields = document.getElementById('request-notify-fields');
     if (fields) {
         fields.style.display = enabled ? '' : 'none';
     }

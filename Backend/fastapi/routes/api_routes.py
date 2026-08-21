@@ -1766,7 +1766,7 @@ async def update_settings_api(payload: dict) -> dict:
         del payload["session_secret"]
 
     #----- Type coercion and validation
-    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster"}
+    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "notify_new_requests", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster"}
     for key in bool_keys:
         if key in payload:
             payload[key] = bool(payload[key])
@@ -1870,6 +1870,11 @@ async def update_settings_api(payload: dict) -> dict:
             payload["announcement_channel"], "announcement channel"
         )
 
+    if "request_notify_channel" in payload and payload["request_notify_channel"]:
+        payload["request_notify_channel"] = _validate_channel_id(
+            payload["request_notify_channel"], "request notify channel"
+        )
+
     if "skip_channel" in payload and payload["skip_channel"]:
         payload["skip_channel"] = _validate_channel_id(
             payload["skip_channel"], "skip channel"
@@ -1879,7 +1884,7 @@ async def update_settings_api(payload: dict) -> dict:
     #----- Only AUTH ∩ ANIME is allowed, because an anime channel is an auth channel
     #----- that's flagged as anime (the receiver only indexes files from auth channels).
     _channel_fields = ("auth_channels", "manual_channels", "global_search_channels",
-                       "anime_channels", "announcement_channel", "skip_channel")
+                       "anime_channels", "announcement_channel", "request_notify_channel", "skip_channel")
     if any(field in payload for field in _channel_fields):
         current = SettingsManager.current()
 
@@ -1915,7 +1920,7 @@ async def update_settings_api(payload: dict) -> dict:
     for key in ("tmdb_api", "base_url", "upstream_repo", "upstream_branch",
                 "admin_username", "admin_password", "session_secret", "http_proxy_url",
                 "mediaflow_password", "payment_instructions", "payment_qr_url",
-                "announcement_channel", "skip_channel"):
+                "announcement_channel", "request_notify_channel", "skip_channel"):
         if key in payload and isinstance(payload[key], str):
             payload[key] = payload[key].strip()
 
