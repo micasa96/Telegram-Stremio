@@ -352,13 +352,18 @@ async def search_titles_enriched(query: str) -> list:
                 else:
                     r["availability"] = "unknown"
             else:
-                r["availability"] = "movie"
+                #----- Movies: actually check the library before claiming available
+                in_lib = await media_exists(
+                    "movie", r.get("tmdb_id"), r.get("imdb_id"),
+                    r.get("title", ""), r.get("year"),
+                )
+                r["availability"] = "complete" if in_lib else "missing"
         except Exception:
             if r.get("media_type") == "tv":
                 r["seasons_status"] = {"all": [], "available": [], "missing": []}
                 r["availability"] = "unknown"
             else:
-                r["availability"] = "movie"
+                r["availability"] = "missing"
         # legacy flat flag kept for backward-compat (true only if fully available)
         r["available"] = r.get("availability") in ("complete", "movie")
     return results

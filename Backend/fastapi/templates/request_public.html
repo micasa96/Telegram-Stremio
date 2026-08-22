@@ -130,7 +130,7 @@ function resultCard(r, idx) {
       : `<button class="rp-btn" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`;
     bodyInner = `${chips}<div class="rp-season-actions">${reqSel}${reqAll}</div>`;
   } else {
-    const available = r.availability === 'complete' || r.availability === 'movie';
+    const available = r.availability === 'complete';
     const btn = available
       ? `<button class="rp-btn is-available" disabled><i class="fa-solid fa-circle-check"></i> Disponible</button>`
       : `<button class="rp-btn" onclick="sendRequest(${idx})"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`;
