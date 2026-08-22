@@ -401,12 +401,24 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
         if seasons:
             update["$addToSet"]["season_numbers"] = {"$each": seasons}
 
+        #----- Honest availability for TV: only "already_available" if the
+        #----- specifically requested seasons are actually in the library.
+        #----- A blanket "uploaded" status is NOT enough for a partial series.
         reason = "added"
-        if existing.get("status") == "uploaded":
-            reason = "already_available"
-        elif existing.get("status") == "denied":
-            update["$set"]["status"] = "pending"
-            reason = "reopened"
+        if media_type == "tv" and seasons:
+            if await tv_seasons_available(tmdb_id, seasons):
+                reason = "already_available"
+            else:
+                # reopen/keep pending so the missing seasons stay requested
+                if existing.get("status") != "pending":
+                    update["$set"]["status"] = "pending"
+                reason = "added"
+        else:
+            if existing.get("status") == "uploaded":
+                reason = "already_available"
+            elif existing.get("status") == "denied":
+                update["$set"]["status"] = "pending"
+                reason = "reopened"
 
         await _coll().update_one({"_id": existing["_id"]}, update)
         return {"ok": True, "reason": reason, "title": existing.get("title")}
@@ -488,8 +500,11 @@ async def delete_request(request_id: str) -> bool:
     return result.deleted_count > 0
 
 
-#----- Mark matching pending requests as uploaded when a title is added to a channel
-async def auto_fulfill(tmdb_id=None, imdb_id=None, media_type: str = "movie") -> int:
+#----- Mark matching pending requests as fulfilled when a title (or season) is added.
+#----- For TV: only mark "uploaded" if every season the request asked for is now
+#----- in the library; otherwise keep it "pending" for the still-missing seasons.
+async def auto_fulfill(tmdb_id=None, imdb_id=None, media_type: str = "movie",
+                      season_number=None) -> int:
     media_type = _norm_type(media_type)
     ors = []
     if tmdb_id:
@@ -501,10 +516,39 @@ async def auto_fulfill(tmdb_id=None, imdb_id=None, media_type: str = "movie") ->
         ors.append({"imdb_id": imdb_id})
     if not ors:
         return 0
-    result = await _coll().update_many(
-        {"media_type": media_type, "status": "pending", "$or": ors},
-        {"$set": {"status": "uploaded", "updated_at": datetime.utcnow()}},
-    )
-    if result.modified_count:
-        LOGGER.info(f"[REQUEST] auto-fulfilled {result.modified_count} request(s) for {media_type} tmdb={tmdb_id} imdb={imdb_id}")
-    return result.modified_count
+
+    #----- Movies: straightforward
+    if media_type != "tv":
+        result = await _coll().update_many(
+            {"media_type": "movie", "status": "pending", "$or": ors},
+            {"$set": {"status": "uploaded", "updated_at": datetime.utcnow()}},
+        )
+        if result.modified_count:
+            LOGGER.info(f"[REQUEST] auto-fulfilled {result.modified_count} movie request(s)")
+        return result.modified_count
+
+    #----- TV: evaluate each pending request for season coverage
+    modified = 0
+    async for doc in _coll().find({"media_type": "tv", "status": "pending", "$or": ors}):
+        wanted = doc.get("season_numbers") or []
+        if not wanted:
+            # no specific seasons requested -> fulfilled when whole show present
+            st = await tv_seasons_status(tmdb_id, imdb_id)
+            if st["all"] and len(st["available"]) == len(st["all"]):
+                await _coll().update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"status": "uploaded", "updated_at": datetime.utcnow()}},
+                )
+                modified += 1
+            continue
+        if season_number is not None and int(season_number) in _norm_seasons(wanted):
+            # the just-uploaded season was requested; check if all wanted now present
+            if await tv_seasons_available(tmdb_id, wanted):
+                await _coll().update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"status": "uploaded", "updated_at": datetime.utcnow()}},
+                )
+                modified += 1
+    if modified:
+        LOGGER.info(f"[REQUEST] auto-fulfilled {modified} TV request(s) for tmdb={tmdb_id}")
+    return modified
