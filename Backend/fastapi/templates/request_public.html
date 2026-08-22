@@ -90,15 +90,6 @@ function posterHtml(r, extra) {
   return `<div class="rp-poster">${img}<span class="rp-type">${type}</span>${extra || ''}</div>`;
 }
 
-function availabilityBadge(r) {
-  switch (r.availability) {
-    case 'complete': return `<span class="rp-badge complete">✅ Disponible</span>`;
-    case 'partial':  return `<span class="rp-badge partial">🟡 Parcial</span>`;
-    case 'missing':  return `<span class="rp-badge missing">⚪ Faltante</span>`;
-    default:         return '';
-  }
-}
-
 function seasonChips(r) {
   const st = r.seasons_status || { all: [], available: [], missing: [] };
   if (!st.all || !st.all.length) return '';
@@ -112,7 +103,6 @@ function seasonChips(r) {
 function resultCard(r, idx) {
   r.__idx = idx;
   const yr = r.year ? ` (${esc(r.year)})` : '';
-  const badge = availabilityBadge(r);
   let bodyInner;
   if (r.media_type === 'tv') {
     const st = r.seasons_status || { all: [], available: [], missing: [] };
