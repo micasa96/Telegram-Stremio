@@ -115,13 +115,19 @@ function resultCard(r, idx) {
   const badge = availabilityBadge(r);
   let bodyInner;
   if (r.media_type === 'tv') {
-    // TV: chip selector + two actions (request selected / request whole show)
+    const st = r.seasons_status || { all: [], available: [], missing: [] };
+    const haveSeasons = st.all && st.all.length > 0;
     const chips = seasonChips(r);
     const sel = (selectedSeasons[idx] || []);
     const reqSel = sel.length
       ? `<button class="rp-btn" onclick="sendRequest(${idx})"><i class="fa-solid fa-paper-plane"></i> Solicitar T${sel.join(',T')}</button>`
       : '';
-    const reqAll = `<button class="rp-btn ghost" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-film"></i> Serie completa</button>`;
+    // "Pedir serie completa" is an ACTION, not an availability claim.
+    // Only show it when we actually know the full season list; otherwise the
+    // generic request button covers it.
+    const reqAll = haveSeasons
+      ? `<button class="rp-btn ghost" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-film"></i> Pedir serie completa</button>`
+      : `<button class="rp-btn" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`;
     bodyInner = `${chips}<div class="rp-season-actions">${reqSel}${reqAll}</div>`;
   } else {
     const available = r.availability === 'complete' || r.availability === 'movie';
