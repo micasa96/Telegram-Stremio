@@ -241,6 +241,7 @@ async def admin_requests_page(request: Request, _: bool = Depends(require_auth))
 async def public_request_page(request: Request):
     ctx = _base_context(request)
     ctx["is_authenticated"] = is_authenticated(request)
+    ctx["show_login"] = False
     return templates.TemplateResponse("request_public.html", ctx)
 
 
