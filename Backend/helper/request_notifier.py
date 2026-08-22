@@ -41,6 +41,13 @@ def _build_caption(doc: dict) -> str:
         header += f" ({doc['year']})"
 
     lines = [header, "", f"🗂 <b>Tipo:</b> {'Serie' if is_tv else 'Película'}"]
+    #----- Requested seasons (TV): "Temporadas: T1, T3" or "Serie completa" when unspecified
+    if is_tv:
+        seasons = [s for s in (doc.get("season_numbers") or []) if s]
+        if seasons:
+            lines.append("📺 <b>Temporadas:</b> " + ", ".join(f"T{s}" for s in sorted(seasons)))
+        else:
+            lines.append("📺 <b>Temporadas:</b> Serie completa")
     imdb_id = doc.get("imdb_id")
     if imdb_id:
         lines.append(f"🆔 <b>IMDb:</b> {imdb_id}")

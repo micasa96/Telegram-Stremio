@@ -69,6 +69,85 @@ def _tv_entry(t) -> dict:
     }
 
 
+#----- TMDB season numbers (regular seasons only, excludes 0/specials)
+async def _tmdb_tv_seasons(tmdb_id):
+    if not tmdb_id:
+        return []
+    try:
+        client = get_tmdb_client()
+        tv = await client.tv(int(tmdb_id)).details()
+    except Exception as e:
+        LOGGER.warning(f"[REQUEST] tmdb tv seasons failed {tmdb_id}: {e}")
+        return []
+    out = []
+    for s in (getattr(tv, "seasons", None) or []):
+        num = getattr(s, "season_number", None)
+        if num is None or num == 0:
+            continue
+        out.append(num)
+    return sorted(out)
+
+
+#----- Seasons of this tmdb_id that already have >=1 uploaded episode in the DB
+async def _db_tv_available_seasons(tmdb_id):
+    if not tmdb_id:
+        return set()
+    res = await db.find_media_doc("tv", int(tmdb_id))
+    if not res:
+        return set()
+    doc, _ = res
+    avail = set()
+    for s in doc.get("seasons", []):
+        num = s.get("season_number")
+        eps = s.get("episodes", [])
+        if any(ep.get("telegram") for ep in eps):
+            avail.add(num)
+    return avail
+
+
+#----- Per-season availability: {all, available, missing} season-number lists
+async def tv_seasons_status(tmdb_id):
+    all_s = await _tmdb_tv_seasons(tmdb_id)
+    if not all_s:
+        return {"all": [], "available": [], "missing": []}
+    avail = await _db_tv_available_seasons(tmdb_id)
+    available = [s for s in all_s if s in avail]
+    missing = [s for s in all_s if s not in avail]
+    return {"all": all_s, "available": available, "missing": missing}
+
+
+def _norm_seasons(value) -> list:
+    out = []
+    if not value:
+        return out
+    for s in value:
+        try:
+            n = int(s)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            out.append(n)
+    # de-dup preserving order
+    seen = set()
+    uniq = []
+    for n in sorted(out):
+        if n not in seen:
+            seen.add(n)
+            uniq.append(n)
+    return uniq
+
+
+#----- Is a requested set of seasons already fully available in the library?
+async def tv_seasons_available(tmdb_id, season_numbers) -> bool:
+    if not season_numbers:
+        return False
+    wanted = set(_norm_seasons(season_numbers))
+    if not wanted:
+        return False
+    avail = await _db_tv_available_seasons(tmdb_id)
+    return wanted.issubset(avail)
+
+
 #----- IMDb/Cinemeta name search (no API key, tried before TMDB)
 async def _cinemeta_name_search(query: str) -> list:
     out = []
@@ -232,32 +311,48 @@ async def media_exists(media_type: str, tmdb_id, imdb_id, title: str, year=None)
     return False
 
 
-#----- Enrich search results with an "already in library?" flag so the
-#----- public Request page can show "Disponible" instead of "Request".
+#----- Enrich search results with availability flags so the public Request page
+#----- can show "Disponible" / "Parcial" instead of a flat "Request".
 async def search_titles_enriched(query: str) -> list:
     results = await search_titles(query)
     for r in results:
         try:
-            r["available"] = await media_exists(
-                r.get("media_type", "movie"),
-                r.get("tmdb_id"),
-                r.get("imdb_id"),
-                r.get("title", ""),
-                r.get("year"),
-            )
+            if r.get("media_type") == "tv" and r.get("tmdb_id"):
+                st = await tv_seasons_status(r["tmdb_id"])
+                r["seasons_status"] = st
+                if st["all"]:
+                    if not st["available"]:
+                        r["availability"] = "missing"      # no seasons in library
+                    elif len(st["available"]) == len(st["all"]):
+                        r["availability"] = "complete"     # all seasons in library
+                    else:
+                        r["availability"] = "partial"      # some seasons in library
+                else:
+                    r["availability"] = "unknown"
+            else:
+                r["availability"] = "movie"
         except Exception:
-            r["available"] = False
+            if r.get("media_type") == "tv":
+                r["seasons_status"] = {"all": [], "available": [], "missing": []}
+                r["availability"] = "unknown"
+            else:
+                r["availability"] = "movie"
+        # legacy flat flag kept for backward-compat (true only if fully available)
+        r["available"] = r.get("availability") in ("complete", "movie")
     return results
 
 
-#----- Public submit: de-duplicated per title, honouring banned/denied/uploaded state
-async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, client_ip) -> dict:
+#----- Public submit: de-duplicated per (title + requested seasons), honouring
+#----- banned/denied/uploaded state. For TV, season_numbers drives availability.
+async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, client_ip,
+                         season_numbers=None) -> dict:
     media_type = _norm_type(media_type)
     try:
         tmdb_id = int(tmdb_id) if tmdb_id else None
     except (TypeError, ValueError):
         tmdb_id = None
     imdb_id = imdb_id or None
+    seasons = _norm_seasons(season_numbers) if media_type == "tv" else []
     if not tmdb_id and not imdb_id:
         return {"ok": False, "reason": "invalid"}
 
@@ -280,6 +375,9 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
             update["$set"]["imdb_id"] = imdb_id
         if tmdb_id and not existing.get("tmdb_id"):
             update["$set"]["tmdb_id"] = tmdb_id
+        # merge requested seasons into the existing request
+        if seasons:
+            update["$addToSet"]["season_numbers"] = {"$each": seasons}
 
         reason = "added"
         if existing.get("status") == "uploaded":
@@ -291,8 +389,18 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
         await _coll().update_one({"_id": existing["_id"]}, update)
         return {"ok": True, "reason": reason, "title": existing.get("title")}
 
-    #----- Not requested before: if it's already in the library, no request needed
-    if await media_exists(media_type, tmdb_id, imdb_id, title, year):
+    #----- Not requested before: check honest availability before creating
+    already = False
+    if media_type == "tv":
+        if seasons:
+            already = await tv_seasons_available(tmdb_id, seasons)
+        else:
+            # no seasons specified -> only "available" if the whole show is in the lib
+            st = await tv_seasons_status(tmdb_id)
+            already = bool(st["all"]) and len(st["available"]) == len(st["all"])
+    else:
+        already = await media_exists(media_type, tmdb_id, imdb_id, title, year)
+    if already:
         return {"ok": True, "reason": "already_available", "title": title}
 
     doc = {
@@ -302,6 +410,7 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
         "title": (title or "Untitled")[:200],
         "year": year,
         "poster": poster or "",
+        "season_numbers": seasons,
         "status": "pending",
         "requesters": [iphash],
         "created_at": now,
