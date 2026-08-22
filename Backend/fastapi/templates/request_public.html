@@ -127,7 +127,7 @@ function resultCard(r, idx) {
     bodyInner = btn;
   }
   return `<div class="rp-card">
-    ${posterHtml(r, badge)}
+    ${posterHtml(r)}
     <div class="rp-body">
       <div class="rp-title">${esc(r.title)}${yr}</div>
       ${bodyInner}
@@ -177,17 +177,24 @@ async function doSearch(e) {
   const box = document.getElementById('rp-results');
   wrap.style.display = '';
   box.innerHTML = `<div class="rp-spinner" style="grid-column:1/-1"><i class="fa-solid fa-spinner fa-spin"></i> Buscando…</div>`;
-  try {
-    const res = await fetch('/api/request/search?q=' + encodeURIComponent(q));
-    const data = await res.json();
-    searchResults = data.data || [];
-    selectedSeasons = {};
-    box.innerHTML = searchResults.length
-      ? searchResults.map((r, i) => resultCard(r, i)).join('')
-      : `<div class="rp-empty" style="grid-column:1/-1">No se encontraron coincidencias. Prueba otro nombre o un ID de IMDb/TMDb.</div>`;
-  } catch (err) {
-    box.innerHTML = `<div class="rp-empty" style="grid-column:1/-1;color:#ef4444">La búsqueda falló. Inténtalo de nuevo.</div>`;
+  // Retry once: the Space can be asleep (HF free tier) and the first hit wakes it.
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch('/api/request/search?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      searchResults = data.data || [];
+      selectedSeasons = {};
+      box.innerHTML = searchResults.length
+        ? searchResults.map((r, i) => resultCard(r, i)).join('')
+        : `<div class="rp-empty" style="grid-column:1/-1">No se encontraron coincidencias. Prueba otro nombre o un ID de IMDb/TMDb.</div>`;
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 1) await new Promise(r => setTimeout(r, 1500));
+    }
   }
+  box.innerHTML = `<div class="rp-empty" style="grid-column:1/-1;color:#ef4444">El servicio tardó en responder. Inténtalo de nuevo en unos segundos.</div>`;
 }
 
 async function sendRequest(idx, seasonsArg) {
