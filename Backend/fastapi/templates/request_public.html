@@ -132,7 +132,7 @@ function resultCard(r, idx) {
   } else {
     const available = r.availability === 'complete';
     const btn = available
-      ? `<button class="rp-btn is-available" disabled><i class="fa-solid fa-circle-check"></i> Disponible</button>`
+      ? `<button class="rp-btn is-available" disabled><i class="fa-solid fa-circle-check"></i> En biblioteca</button>`
       : `<button class="rp-btn" onclick="sendRequest(${idx})"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`;
     bodyInner = btn;
   }
