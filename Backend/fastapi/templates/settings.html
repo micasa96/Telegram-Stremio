@@ -2037,11 +2037,11 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 </script>
 
-    /* ===== Multi-admin UI helpers ===== */
-    <style>
-      ._owner_only { display: block; }
-      body:not(.is-owner) ._owner_only { display: none !important; }
-    </style>
+<style>
+  /* ===== Multi-admin UI helpers ===== */
+  ._owner_only { display: block; }
+  body:not(.is-owner) ._owner_only { display: none !important; }
+</style>
     <script>
       // Mark the body so CSS can hide owner-only sections for sub-admins.
       (function () {
