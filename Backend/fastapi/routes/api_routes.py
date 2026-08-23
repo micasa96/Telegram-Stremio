@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import secrets
 import shutil
 from datetime import datetime
@@ -2322,6 +2323,16 @@ LOG_FILE = "log.txt"
 
 
 #----- Aggregate content + system metrics across all storage DBs (was /stats)
+def _size_to_bytes(size_str) -> int:
+    if not size_str:
+        return 0
+    m = re.match(r"([\d.]+)\s*([A-Za-z]+)", str(size_str).strip())
+    if not m:
+        return 0
+    mult = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
+    return int(float(m.group(1)) * mult.get(m.group(2).upper(), 1))
+
+
 async def get_db_stats_api() -> dict:
     try:
         total_movies = total_tv = total_episodes = total_streams = total_db_size = 0
@@ -2335,7 +2346,7 @@ async def get_db_stats_api() -> dict:
             total_movies += await storage["movie"].count_documents({})
             async for movie in storage["movie"].find({}, {"telegram": 1}):
                 for t in movie.get("telegram", []):
-                    total_movies_bytes += int(t.get("file_size", 0) or 0)
+                    total_movies_bytes += _size_to_bytes(t.get("size"))
                 total_streams += len(movie.get("telegram", []))
 
             total_tv += await storage["tv"].count_documents({})
@@ -2344,7 +2355,7 @@ async def get_db_stats_api() -> dict:
                     for episode in season.get("episodes", []):
                         total_episodes += 1
                         for t in episode.get("telegram", []):
-                            total_tv_bytes += int(t.get("file_size", 0) or 0)
+                            total_tv_bytes += _size_to_bytes(t.get("size"))
                         total_streams += len(episode.get("telegram", []))
 
             try:
