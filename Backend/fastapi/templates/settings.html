@@ -153,6 +153,20 @@
 }
 .stat-box .v { font-size: 1.3rem; font-weight: 800; }
 .stat-box .l { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-sec); }
+.storage-summary {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+    border-radius: 1rem; padding: 0.9rem 1rem;
+}
+.ss-head { display:flex; align-items:center; gap:0.5rem; font-weight:800; font-size:0.95rem; color:var(--text); }
+.ss-infinite { margin-left:auto; font-size:0.7rem; font-weight:700; color:var(--primary);
+    background:color-mix(in srgb,var(--primary) 15%,transparent); padding:0.15rem 0.55rem; border-radius:999px; }
+.ss-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:0.6rem; margin-top:0.7rem; }
+.ss-card { background:color-mix(in srgb,var(--bg) 55%,transparent); border:1px solid var(--border); border-radius:0.75rem; padding:0.6rem 0.7rem; }
+.ss-card .ss-v { font-size:1.25rem; font-weight:800; color:var(--text); }
+.ss-card .ss-l { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-sec); margin-top:0.15rem; }
+.ss-card.ss-total { background:color-mix(in srgb,var(--primary) 14%,transparent); border-color:color-mix(in srgb,var(--primary) 40%,var(--border)); }
+.ss-card.ss-total .ss-v { color:var(--primary); }
 .hint { font-size: 0.78rem; color: var(--text-sec); }
 </style>
 
@@ -272,13 +286,36 @@
     <!-- ── Authentication ──────────────────────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-shield-halved"></i> Admin Authentication</h2>
+
+        {% if not is_owner %}
+        <!-- Sub-admin: manage ONLY their own account -->
         <div class="grid-2">
             <div>
+                <label class="s-label" for="me_password">Your New Password</label>
+                <input type="password" id="me_password" class="s-input"
+                    placeholder="Set a new password for your account" autocomplete="new-password">
+            </div>
+            <div>
+                <label class="s-label">Your API Token (for scripts)</label>
+                <div class="add-row">
+                    <button class="add-btn" type="button" onclick="loadMyToken()">Show my token</button>
+                    <button class="add-btn" type="button" onclick="copyMyToken()">Copy</button>
+                </div>
+                <textarea id="me-token" readonly
+                    style="width:100%;margin-top:0.5rem;min-height:3.2rem;font-family:monospace;font-size:0.78rem;color:var(--primary);background:var(--background);border:1px solid var(--hairline);border-radius:0.6rem;padding:0.5rem;resize:none;display:none"></textarea>
+                <button class="add-btn" type="button" onclick="saveMyPassword()" style="margin-top:0.5rem">Save new password</button>
+            </div>
+        </div>
+        <hr class="divider">
+        {% endif %}
+
+        <div class="grid-2">
+            <div class="_owner_only">
                 <label class="s-label" for="admin_username">Admin Username</label>
                 <input type="text" id="admin_username" class="s-input"
                     value="{{ settings.admin_username }}" autocomplete="off">
             </div>
-            <div>
+            <div class="_owner_only">
                 <label class="s-label" for="admin_password">Admin Password</label>
                 <div style="position:relative">
                     <input type="password" id="admin_password" class="s-input"
@@ -298,7 +335,7 @@
             </div>
         </div>
 
-        <div style="margin-top:1rem">
+        <div style="margin-top:1rem" class="_owner_only">
             <label class="s-label" for="session_secret">Session Secret</label>
             <div style="position:relative">
                 <input type="password" id="session_secret" class="s-input"
@@ -352,8 +389,31 @@
         </div>
     </div>
 
-    <!-- ── Media & Content ─────────────────────────────────────────────── -->
+    <!-- ── Admins (owner only) ───────────────────────────────────────── -->
+    {% if is_owner %}
     <div class="settings-card">
+        <h2><i class="fa-solid fa-user-shield"></i> Admins</h2>
+        <p style="font-size:0.82rem;color:var(--text-sec);margin-bottom:0.75rem">
+            <i class="fa-solid fa-circle-info"></i>
+            Generate a one-time invite code (expires in 7 days) and share it.
+            New admins register with it on the login page. You can reset their
+            password or revoke access anytime.
+        </p>
+
+        <div class="add-row">
+            <button class="add-btn" type="button" onclick="genInvite()">Generate invite code</button>
+            <button class="add-btn" type="button" onclick="copyInvite()">Copy</button>
+        </div>
+        <textarea id="invite-code" readonly
+            style="width:100%;margin-top:0.5rem;min-height:3.2rem;font-family:monospace;font-size:0.85rem;color:var(--primary);background:var(--background);border:1px solid var(--hairline);border-radius:0.6rem;padding:0.5rem;resize:none;display:none"></textarea>
+
+        <div id="admins-list" style="margin-top:1rem"></div>
+    </div>
+    {% endif %}
+
+
+    <!-- ── Media & Content ─────────────────────────────────────────────── -->
+    <div class="settings-card _owner_only">
         <h2><i class="fa-solid fa-film"></i> Media &amp; Content</h2>
         <div class="grid-2">
             <div>
@@ -1148,8 +1208,8 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     </div>
 
 <!-- ── Databases ────────────────────────────────────────────────────── -->
-    <div class="settings-card">
-        <h2><i class="fa-solid fa-database"></i> Databases</h2>
+<div class="settings-card _owner_only">
+    <h2><i class="fa-solid fa-database"></i> Databases</h2>
         <p style="font-size:0.83rem;color:var(--text-sec);margin-bottom:1rem">
             Tracking and Storage 1 are required to boot the app and can't be edited
             here. Additional storage databases connect/disconnect instantly when
@@ -1235,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     </div>
 
     <!-- ── Backup & Restore ───────────────────────────────────────────── -->
-    <div class="settings-card">
+    <div class="settings-card _owner_only">
         <h2><i class="fa-solid fa-box-archive"></i> Backup &amp; Restore</h2>
         <p class="bk-desc">
             Export everything — settings, custom catalogs, subscription plans and access tokens — to a JSON file,
@@ -1898,7 +1958,19 @@ async function loadDbStats(btn) {
         const data = await res.json();
         if (data.status !== 'success') throw new Error(data.message || 'failed');
         const s = data.data;
-        grid.innerHTML = STAT_FIELDS.map(([k, label]) =>
+        const storageBlock = `
+            <div class="storage-summary" style="grid-column:1/-1">
+                <div class="ss-head">
+                    <i class="fa-solid fa-database"></i> Stored Content
+                    <span class="ss-infinite" title="No storage limit set"><i class="fa-solid fa-infinity"></i> unlimited</span>
+                </div>
+                <div class="ss-cards">
+                    <div class="ss-card"><div class="ss-v">${s.movies_readable ?? '—'}</div><div class="ss-l">Movies (${s.movies ?? 0})</div></div>
+                    <div class="ss-card"><div class="ss-v">${s.tv_readable ?? '—'}</div><div class="ss-l">TV Shows (${s.tv_shows ?? 0})</div></div>
+                    <div class="ss-card ss-total"><div class="ss-v">${s.total_readable ?? '—'}</div><div class="ss-l">Total</div></div>
+                </div>
+            </div>`;
+        grid.innerHTML = storageBlock + STAT_FIELDS.map(([k, label]) =>
             `<div class="stat-box"><div class="v">${escapeHtml(String(s[k] ?? '—'))}</div><div class="l">${label}</div></div>`
         ).join('');
     } catch (e) {
@@ -1988,7 +2060,112 @@ window.addEventListener('DOMContentLoaded', () => {
     toggleMediaflowFields();
     loadDbStats();
     loadLogs();
-});
+    });
 </script>
 
-{% endblock %}
+<style>
+  /* ===== Multi-admin UI helpers ===== */
+  ._owner_only { display: block; }
+  body:not(.is-owner) ._owner_only { display: none !important; }
+</style>
+    <script>
+      // Mark the body so CSS can hide owner-only sections for sub-admins.
+      (function () {
+        const isOwner = "{{ '1' if is_owner else '0' }}" === "1";
+        if (isOwner) document.body.classList.add('is-owner');
+      })();
+
+      async function genInvite() {
+        try {
+          const res = await fetch('/api/admin/invite/generate', { method: 'POST' });
+          const d = await res.json();
+          if (!res.ok) { showToast(d.detail || 'Error', 'error'); return; }
+          const el = document.getElementById('invite-code');
+          el.value = d.code || '';
+          el.style.display = el.value ? 'block' : 'none';
+          showToast('Invite code generated (one-time, 7 days).', 'success');
+        } catch (e) { showToast('Request failed', 'error'); }
+      }
+
+      async function copyInvite() {
+        const el = document.getElementById('invite-code');
+        if (!el.value) { showToast('Generate a code first', 'error'); return; }
+        try { await navigator.clipboard.writeText(el.value); showToast('Invite code copied', 'success'); }
+        catch (e) { el.select(); document.execCommand('copy'); showToast('Invite code copied', 'success'); }
+      }
+
+      async function loadAdmins() {
+        try {
+          const res = await fetch('/api/admin/admins');
+          const d = await res.json();
+          const box = document.getElementById('admins-list');
+          if (!res.ok || !d.admins) { box.innerHTML = ''; return; }
+          box.innerHTML = d.admins.map(a => `
+            <div style="display:flex;align-items:center;gap:0.5rem;margin:0.35rem 0;flex-wrap:wrap">
+              <span class="channel-chip">${a.username}</span>
+              <span style="font-size:0.75rem;color:var(--text-sec)">${a.role}</span>
+              ${a.role !== 'owner' ? `
+                <button class="remove-btn" title="Reset password" onclick="resetAdmin('${a.username}')"><i class="fa-solid fa-key"></i></button>
+                <button class="remove-btn" title="Delete" onclick="deleteAdmin('${a.username}')"><i class="fa-solid fa-xmark"></i></button>
+              ` : ''}
+            </div>`).join('');
+        } catch (e) {}
+      }
+
+      async function resetAdmin(username) {
+        const pw = prompt('New password for ' + username);
+        if (!pw) return;
+        const res = await fetch('/api/admin/admins/reset-password', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ target: username, new_password: pw })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Password reset' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+      }
+
+      async function deleteAdmin(username) {
+        if (!confirm('Delete admin ' + username + '?')) return;
+        const res = await fetch('/api/admin/admins/delete', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ target: username })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Admin deleted' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+        loadAdmins();
+      }
+
+      async function loadMyToken() {
+        try {
+          const res = await fetch('/api/admin/me/token');
+          const d = await res.json();
+          const el = document.getElementById('me-token');
+          el.value = d.api_token || '';
+          el.style.display = el.value ? 'block' : 'none';
+        } catch (e) { showToast('Failed to load token', 'error'); }
+      }
+
+      async function copyMyToken() {
+        const el = document.getElementById('me-token');
+        if (!el.value) { showToast('Show your token first', 'error'); return; }
+        try { await navigator.clipboard.writeText(el.value); showToast('Token copied', 'success'); }
+        catch (e) { el.select(); document.execCommand('copy'); showToast('Token copied', 'success'); }
+      }
+
+      async function saveMyPassword() {
+        const pw = document.getElementById('me_password').value;
+        if (!pw) { showToast('Enter a new password', 'error'); return; }
+        const res = await fetch('/api/admin/me/password', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ new_password: pw })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Password updated' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+        document.getElementById('me_password').value = '';
+      }
+
+      if (document.body.classList.contains('is-owner')) {
+        window.addEventListener('DOMContentLoaded', loadAdmins);
+      }
+    </script>
+
+    {% endblock %}
