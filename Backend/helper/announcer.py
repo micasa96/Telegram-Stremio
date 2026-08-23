@@ -213,26 +213,10 @@ async def _announce(info: dict) -> None:
     ep_count = 0
     announce_key = None
 
-    if media_type == "tv" and season_number:
-        status = await _tmdb_series_status(tmdb_id)
-        is_ended = status.lower() in ("ended", "canceled", "cancelled")
-
-        if is_ended:
-            # Series finale / finished show: only announce when the season is complete.
-            total = await _tmdb_season_total(tmdb_id, season_number)
-            count = await _count_season_episodes(tmdb_id, season_number)
-            count += 1  # this episode was just inserted
-            if total and count >= total:
-                season_complete = True
-                ep_count = count
-                announce_key = f"tv_complete:{tmdb_id}:{season_number}"
-            else:
-                # Not complete yet -> wait for the last episode. Silence per-season.
-                return
-        else:
-            # Airing series: announce each episode, once per (tmdb, season, episode).
-            episode_number = info.get("episode_number")
-            announce_key = f"tv_ep:{tmdb_id}:{season_number}:{episode_number}"
+    # Announce every freshly added item immediately, once per (tmdb, season, episode).
+    # No air-date / TMDB gating: an added episode or movie is always announced.
+    if media_type == "tv" and season_number and info.get("episode_number"):
+        announce_key = f"tv_ep:{tmdb_id}:{season_number}:{info['episode_number']}"
     else:
         announce_key = f"{media_type}:{tmdb_id}"
 
