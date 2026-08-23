@@ -23,6 +23,8 @@
   .rq-badge { position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.15rem 0.55rem; border-radius: 9999px;
               font-size: 0.65rem; font-weight: 800; text-transform: uppercase; }
   .b-pending { background: #f59e0b; color: #111; }
+  .rq-seasons { margin-top: 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--text-sec, #9ca3af); }
+  .rq-seasons i { color: var(--primary, #22c55e); margin-right: 0.25rem; }
   .b-uploaded { background: #22c55e; color: #052e16; }
   .b-denied { background: #64748b; color: #fff; }
   .b-banned { background: #ef4444; color: #fff; }
@@ -128,6 +130,12 @@ function cardHtml(r) {
     ? `<img src="${esc(r.poster)}" loading="lazy" alt="">`
     : `<div class="noimg"><i class="fa-solid fa-film"></i></div>`;
   const yr = r.year ? ` (${esc(r.year)})` : '';
+  let seasonsLine = '';
+  if (r.media_type === 'tv' && Array.isArray(r.season_numbers) && r.season_numbers.length) {
+    const nums = r.season_numbers.map(n => Number(n)).sort((a, b) => a - b);
+    const label = nums.length > 6 ? `T${nums[0]}–T${nums[nums.length - 1]} (+${nums.length - 2})` : nums.map(n => `T${n}`).join(', ');
+    seasonsLine = `<div class="rq-seasons"><i class="fa-solid fa-tv"></i> ${esc(label)}</div>`;
+  }
   let actions = '';
   if (r.status !== 'uploaded')
     actions += `<button class="rq-btn btn-up" onclick="setStatus('${r._id}','uploaded')"><i class="fa-solid fa-check"></i> Uploaded</button>`;
@@ -147,6 +155,7 @@ function cardHtml(r) {
     </div>
     <div class="rq-body">
       <div class="rq-title">${esc(r.title)}${yr}</div>
+      ${seasonsLine}
       <div class="rq-id">${idLine(r)}</div>
     </div>
     <div class="rq-actions">${actions}</div>
