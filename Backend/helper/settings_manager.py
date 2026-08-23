@@ -60,6 +60,9 @@ _DEFAULTS: Dict[str, Any] = {
     # Display/search language for the Latino community (TMDB client requests this
     # language so Spanish titles surface as the primary match).
     "match_language": "es-MX",
+    #----- External request API (e.g. n8n webhook): POST a new request there
+    "external_api_url": "",
+    "external_api_token": "",
 }
 
 
@@ -301,6 +304,14 @@ class Settings:
     @property
     def match_language(self) -> str:
         return str(self._d.get("match_language") or "es-MX").strip() or "es-MX"
+
+    @property
+    def external_api_url(self) -> str:
+        return str(self._d.get("external_api_url") or "").strip()
+
+    @property
+    def external_api_token(self) -> str:
+        return str(self._d.get("external_api_token") or "").strip()
 
     #----- Serialisation
     def to_dict(self) -> Dict[str, Any]:

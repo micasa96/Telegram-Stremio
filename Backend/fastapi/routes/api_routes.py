@@ -1922,7 +1922,8 @@ async def update_settings_api(payload: dict) -> dict:
                 "admin_username", "admin_password", "session_secret", "http_proxy_url",
                 "mediaflow_password", "payment_instructions", "payment_qr_url",
                 "announcement_channel", "request_notify_channel", "skip_channel",
-                "announcement_thread", "request_notify_thread"):
+                "announcement_thread", "request_notify_thread",
+                "external_api_url", "external_api_token"):
         if key in payload and isinstance(payload[key], str):
             payload[key] = payload[key].strip()
 

@@ -6,6 +6,7 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 
 from Backend.helper.request_notifier import notify_new_request
+from Backend.helper.external_api_notifier import notify_external_api
 from Backend import db
 from Backend.helper.metadata.providers.cinemeta import extract_first_year, get_detail as cinemeta_detail, search_title_multi
 from Backend.helper.metadata import (
@@ -458,6 +459,7 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
     }
     await _coll().insert_one(doc)
     notify_new_request(doc)
+    notify_external_api(doc)
     return {"ok": True, "reason": "created", "title": doc["title"]}
 
 
