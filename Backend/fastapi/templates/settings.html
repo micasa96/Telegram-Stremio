@@ -988,14 +988,17 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
 
     <!-- ── External Request API (webhook) ─────────────────────────────── -->
     <div class="settings-card">
-        <h2><i class="fa-solid fa-cloud-arrow-up"></i> API de pedidos externa</h2>
+        <h2><i class="fa-solid fa-cloud-arrow-up"></i> External Request API</h2>
         <p style="font-size:0.82rem;color:var(--text-sec);margin-bottom:0.75rem">
             <i class="fa-solid fa-circle-info"></i>
-            Envía cada pedido nuevo a esta API (n8n). Película → <code>movies</code> / temporada 0;
-            Serie → <code>series</code> + temporada. Vacío = desactivado.
+            Sends each new public request to this API (e.g. n8n) as
+            <code>{"imdb","nombre","tipo","temporada"}</code>.
+            Movie → <code>tipo:"movies"</code>, <code>temporada:0</code>;
+            Series → <code>tipo:"series"</code> with the chosen season.
+            Leave both empty to disable. Does not affect the Telegram notifier.
         </p>
 
-        <label class="s-label" for="external_api_url">URL DE LA API</label>
+        <label class="s-label" for="external_api_url">API URL</label>
         <div class="multi-item" style="margin-top:0.25rem">
             <input type="text" id="external_api_url" class="s-input"
                 value="{{ settings.external_api_url or '' }}"
@@ -1006,7 +1009,7 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         <div class="multi-item" style="margin-top:0.25rem">
             <input type="password" id="external_api_token" class="s-input"
                 value="{{ settings.external_api_token or '' }}"
-                placeholder="Bearer token de la API">
+                placeholder="Bearer token of the API">
         </div>
     </div>
 
