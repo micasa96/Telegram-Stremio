@@ -991,12 +991,8 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         <h2><i class="fa-solid fa-cloud-arrow-up"></i> API de pedidos externa</h2>
         <p style="font-size:0.82rem;color:var(--text-sec);margin-bottom:0.75rem">
             <i class="fa-solid fa-circle-info"></i>
-            Al crearse un pedido en la página pública, se envía una copia a esta API
-            (ej. n8n) con el formato
-            <code>{"imdb","nombre","tipo","temporada"}</code>.
-            Película → <code>tipo:"movies"</code>, <code>temporada:0</code>;
-            Serie → <code>tipo:"series"</code> y la temporada elegida.
-            Deja ambos campos vacíos para desactivarlo. No afecta el notificador de Telegram.
+            Envía cada pedido nuevo a esta API (n8n). Película → <code>movies</code> / temporada 0;
+            Serie → <code>series</code> + temporada. Vacío = desactivado.
         </p>
 
         <label class="s-label" for="external_api_url">URL DE LA API</label>
