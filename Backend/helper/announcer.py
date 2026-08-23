@@ -213,10 +213,17 @@ async def _announce(info: dict) -> None:
     ep_count = 0
     announce_key = None
 
-    # Announce every freshly added item immediately, once per (tmdb, season, episode).
-    # No air-date / TMDB gating: an added episode or movie is always announced.
-    if media_type == "tv" and season_number and info.get("episode_number"):
-        announce_key = f"tv_ep:{tmdb_id}:{season_number}:{info['episode_number']}"
+    # Announce every freshly added item immediately.
+    # TV: key by season (and episode when present) so each added season/episode
+    # notifies, regardless of whether episode_number was parsed.
+    if media_type == "tv":
+        ep = info.get("episode_number")
+        if season_number and ep:
+            announce_key = f"tv:{tmdb_id}:s{season_number}e{ep}"
+        elif season_number:
+            announce_key = f"tv:{tmdb_id}:s{season_number}"
+        else:
+            announce_key = f"tv:{tmdb_id}"
     else:
         announce_key = f"{media_type}:{tmdb_id}"
 
