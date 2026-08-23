@@ -1,5 +1,5 @@
 from asyncio import create_task
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait, MessageDeleteForbidden, MessageIdInvalid
@@ -82,6 +82,32 @@ async def _tmdb_series_status(tmdb_id) -> str:
         LOGGER.warning(f"TMDB series status failed for {tmdb_id}: {e}")
     _TMDB_STATUS_CACHE[tmdb_id] = status
     return status
+
+
+async def _tmdb_last_air_date(tmdb_id, season_number) -> "datetime | None":
+    """Air date of the LAST episode of this season according to TMDB (source of truth)."""
+    if not tmdb_id or not season_number:
+        return None
+    try:
+        tmdb_id = int(tmdb_id)
+        season_number = int(season_number)
+    except (TypeError, ValueError):
+        return None
+    try:
+        client = get_tmdb_client()
+        season = await client.tv(tmdb_id).season(season_number).details()
+        episodes = getattr(season, "episodes", None) or []
+        last = None
+        for ep in episodes:
+            air = getattr(ep, "air_date", None)
+            if not air:
+                continue
+            if last is None or air > last:
+                last = air
+        return last
+    except Exception as e:
+        LOGGER.warning(f"TMDB last air date failed for {tmdb_id} S{season_number}: {e}")
+        return None
 
 
 async def _tmdb_season_total(tmdb_id, season_number) -> int:
@@ -214,25 +240,39 @@ async def _announce(info: dict) -> None:
     announce_key = None
 
     if media_type == "tv" and season_number:
-        status = await _tmdb_series_status(tmdb_id)
-        is_ended = status.lower() in ("ended", "canceled", "cancelled")
+        # Per-SEASON rule based on TMDB air-dates (not series status, not counts):
+        #  - season complete (all TMDB-listed episodes present) -> ONE announcement
+        #  - season still airing (last episode recent or any future-dated) -> 1 per episode
+        #  - season already finished airing but incomplete in DB -> stay silent
+        #    until the missing episodes are added, THEN one "season complete" message.
+        total = await _tmdb_season_total(tmdb_id, season_number)
+        count = await _count_season_episodes(tmdb_id, season_number)
+        count += 1  # this episode was just inserted
 
-        if is_ended:
-            # Series finale / finished show: only announce when the season is complete.
-            total = await _tmdb_season_total(tmdb_id, season_number)
-            count = await _count_season_episodes(tmdb_id, season_number)
-            count += 1  # this episode was just inserted
-            if total and count >= total:
-                season_complete = True
-                ep_count = count
-                announce_key = f"tv_complete:{tmdb_id}:{season_number}"
-            else:
-                # Not complete yet -> wait for the last episode. Silence per-season.
-                return
+        if total and count >= total:
+            # All episodes present -> announce the whole season once.
+            season_complete = True
+            ep_count = count
+            announce_key = f"tv_complete:{tmdb_id}:{season_number}"
         else:
-            # Airing series: announce each episode, once per (tmdb, season, episode).
-            episode_number = info.get("episode_number")
-            announce_key = f"tv_ep:{tmdb_id}:{season_number}:{episode_number}"
+            # Season not yet complete. Only announce per-episode while it is
+            # still AIRING. Decide airing from the last episode's TMDB air-date:
+            #   - has a future-dated episode, OR
+            #   - last air-date is within the grace window (~21 days) of now.
+            last_air = await _tmdb_last_air_date(tmdb_id, season_number)
+            airing = False
+            if last_air is not None:
+                now = datetime.utcnow()
+                if last_air > now:
+                    airing = True                      # future episode scheduled
+                elif (now - last_air) <= timedelta(days=21):
+                    airing = True                      # recently aired, likely weekly
+            if airing:
+                episode_number = info.get("episode_number")
+                announce_key = f"tv_ep:{tmdb_id}:{season_number}:{episode_number}"
+            else:
+                # Finished airing but incomplete -> wait silently for the rest.
+                return
     else:
         announce_key = f"{media_type}:{tmdb_id}"
 
