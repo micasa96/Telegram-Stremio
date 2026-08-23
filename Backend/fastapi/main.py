@@ -116,6 +116,7 @@ from Backend.fastapi.routes.stream_routes import decay_client_failures
 from Backend.fastapi.routes.stream_routes import router as stream_router
 from Backend.fastapi.routes.stremio_routes import router as stremio_router
 from Backend.fastapi.routes.webdav_routes import router as webdav_router
+from Backend.fastapi.routes.admin_users_routes import router as admin_users_router
 from Backend.fastapi.routes.template_routes import (
     admin_access_page,
     admin_dashboard_page,
@@ -164,12 +165,19 @@ except Exception:
 @app.on_event("startup")
 async def _startup():
     asyncio.create_task(decay_client_failures())
+    #----- Ensure the settings-based owner exists as an admin (never locks out).
+    try:
+        from Backend.helper import admin_users
+        asyncio.create_task(admin_users.ensure_owner())
+    except Exception as e:
+        print(f"[STARTUP] ensure_owner skipped: {e}")
 
 
 #----- Streaming and Stremio routers
 app.include_router(stream_router)
 app.include_router(stremio_router)
 app.include_router(webdav_router)
+app.include_router(admin_users_router)
 
 
 #----- Public routes (no authentication)

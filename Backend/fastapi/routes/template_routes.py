@@ -276,10 +276,15 @@ async def settings_page(request: Request, _: bool = Depends(require_auth)):
         titles = {}
     settings["channel_titles"] = {str(k): str(v) for k, v in titles.items() if k and v}
 
+    #----- Role of the logged-in admin, to show/hide sections in the UI.
+    from Backend.fastapi.security.credentials import get_current_role
+    is_owner = (await get_current_role(request)) == "owner"
+
     ctx = _base_context(request)
     ctx.update({
         "current_user": get_current_user(request),
         "settings": settings,
         "userbot_configured": botmod.Userbot is not None,
+        "is_owner": is_owner,
     })
     return templates.TemplateResponse("settings.html", ctx)

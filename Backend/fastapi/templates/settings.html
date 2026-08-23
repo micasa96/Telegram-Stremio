@@ -272,13 +272,34 @@
     <!-- ── Authentication ──────────────────────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-shield-halved"></i> Admin Authentication</h2>
+
+        {% if not is_owner %}
+        <!-- Sub-admin: manage ONLY their own account -->
         <div class="grid-2">
             <div>
+                <label class="s-label" for="me_password">Your New Password</label>
+                <input type="password" id="me_password" class="s-input"
+                    placeholder="Set a new password for your account" autocomplete="new-password">
+            </div>
+            <div>
+                <label class="s-label">Your API Token (for scripts)</label>
+                <div class="add-row">
+                    <button class="add-btn" type="button" onclick="loadMyToken()">Show my token</button>
+                    <span id="me-token" style="font-family:monospace;color:var(--primary);word-break:break-all"></span>
+                </div>
+                <button class="add-btn" type="button" onclick="saveMyPassword()" style="margin-top:0.5rem">Save new password</button>
+            </div>
+        </div>
+        <hr class="divider">
+        {% endif %}
+
+        <div class="grid-2">
+            <div class="_owner_only">
                 <label class="s-label" for="admin_username">Admin Username</label>
                 <input type="text" id="admin_username" class="s-input"
                     value="{{ settings.admin_username }}" autocomplete="off">
             </div>
-            <div>
+            <div class="_owner_only">
                 <label class="s-label" for="admin_password">Admin Password</label>
                 <div style="position:relative">
                     <input type="password" id="admin_password" class="s-input"
@@ -298,7 +319,7 @@
             </div>
         </div>
 
-        <div style="margin-top:1rem">
+        <div style="margin-top:1rem" class="_owner_only">
             <label class="s-label" for="session_secret">Session Secret</label>
             <div style="position:relative">
                 <input type="password" id="session_secret" class="s-input"
@@ -352,8 +373,29 @@
         </div>
     </div>
 
-    <!-- ── Media & Content ─────────────────────────────────────────────── -->
+    <!-- ── Admins (owner only) ───────────────────────────────────────── -->
+    {% if is_owner %}
     <div class="settings-card">
+        <h2><i class="fa-solid fa-user-shield"></i> Admins</h2>
+        <p style="font-size:0.82rem;color:var(--text-sec);margin-bottom:0.75rem">
+            <i class="fa-solid fa-circle-info"></i>
+            Generate a one-time invite code (expires in 7 days) and share it.
+            New admins register with it on the login page. You can reset their
+            password or revoke access anytime.
+        </p>
+
+        <div class="add-row">
+            <button class="add-btn" type="button" onclick="genInvite()">Generate invite code</button>
+            <span id="invite-code" style="font-family:monospace;color:var(--primary)"></span>
+        </div>
+
+        <div id="admins-list" style="margin-top:1rem"></div>
+    </div>
+    {% endif %}
+
+
+    <!-- ── Media & Content ─────────────────────────────────────────────── -->
+    <div class="settings-card _owner_only">
         <h2><i class="fa-solid fa-film"></i> Media &amp; Content</h2>
         <div class="grid-2">
             <div>
@@ -1148,8 +1190,8 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     </div>
 
 <!-- ── Databases ────────────────────────────────────────────────────── -->
-    <div class="settings-card">
-        <h2><i class="fa-solid fa-database"></i> Databases</h2>
+<div class="settings-card _owner_only">
+    <h2><i class="fa-solid fa-database"></i> Databases</h2>
         <p style="font-size:0.83rem;color:var(--text-sec);margin-bottom:1rem">
             Tracking and Storage 1 are required to boot the app and can't be edited
             here. Additional storage databases connect/disconnect instantly when
@@ -1235,7 +1277,7 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     </div>
 
     <!-- ── Backup & Restore ───────────────────────────────────────────── -->
-    <div class="settings-card">
+    <div class="settings-card _owner_only">
         <h2><i class="fa-solid fa-box-archive"></i> Backup &amp; Restore</h2>
         <p class="bk-desc">
             Export everything — settings, custom catalogs, subscription plans and access tokens — to a JSON file,
@@ -1988,7 +2030,94 @@ window.addEventListener('DOMContentLoaded', () => {
     toggleMediaflowFields();
     loadDbStats();
     loadLogs();
-});
+    });
 </script>
 
-{% endblock %}
+    /* ===== Multi-admin UI helpers ===== */
+    <style>
+      ._owner_only { display: block; }
+      body:not(.is-owner) ._owner_only { display: none !important; }
+    </style>
+    <script>
+      // Mark the body so CSS can hide owner-only sections for sub-admins.
+      (function () {
+        const isOwner = "{{ '1' if is_owner else '0' }}" === "1";
+        if (isOwner) document.body.classList.add('is-owner');
+      })();
+
+      async function genInvite() {
+        try {
+          const res = await fetch('/api/admin/invite/generate', { method: 'POST' });
+          const d = await res.json();
+          if (!res.ok) { showToast(d.detail || 'Error', 'error'); return; }
+          document.getElementById('invite-code').textContent = d.code;
+          showToast('Invite code generated (one-time, 7 days).', 'success');
+        } catch (e) { showToast('Request failed', 'error'); }
+      }
+
+      async function loadAdmins() {
+        try {
+          const res = await fetch('/api/admin/admins');
+          const d = await res.json();
+          const box = document.getElementById('admins-list');
+          if (!res.ok || !d.admins) { box.innerHTML = ''; return; }
+          box.innerHTML = d.admins.map(a => `
+            <div style="display:flex;align-items:center;gap:0.5rem;margin:0.35rem 0;flex-wrap:wrap">
+              <span class="channel-chip">${a.username}</span>
+              <span style="font-size:0.75rem;color:var(--text-sec)">${a.role}</span>
+              ${a.role !== 'owner' ? `
+                <button class="remove-btn" title="Reset password" onclick="resetAdmin('${a.username}')"><i class="fa-solid fa-key"></i></button>
+                <button class="remove-btn" title="Delete" onclick="deleteAdmin('${a.username}')"><i class="fa-solid fa-xmark"></i></button>
+              ` : ''}
+            </div>`).join('');
+        } catch (e) {}
+      }
+
+      async function resetAdmin(username) {
+        const pw = prompt('New password for ' + username);
+        if (!pw) return;
+        const res = await fetch('/api/admin/admins/reset-password', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ target: username, new_password: pw })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Password reset' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+      }
+
+      async function deleteAdmin(username) {
+        if (!confirm('Delete admin ' + username + '?')) return;
+        const res = await fetch('/api/admin/admins/delete', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ target: username })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Admin deleted' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+        loadAdmins();
+      }
+
+      async function loadMyToken() {
+        try {
+          const res = await fetch('/api/admin/me/token');
+          const d = await res.json();
+          document.getElementById('me-token').textContent = d.api_token || '';
+        } catch (e) { showToast('Failed to load token', 'error'); }
+      }
+
+      async function saveMyPassword() {
+        const pw = document.getElementById('me_password').value;
+        if (!pw) { showToast('Enter a new password', 'error'); return; }
+        const res = await fetch('/api/admin/me/password', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ new_password: pw })
+        });
+        const d = await res.json();
+        showToast(d.ok ? 'Password updated' : (d.detail || 'Error'), d.ok ? 'success' : 'error');
+        document.getElementById('me_password').value = '';
+      }
+
+      if (document.body.classList.contains('is-owner')) {
+        window.addEventListener('DOMContentLoaded', loadAdmins);
+      }
+    </script>
+
+    {% endblock %}
