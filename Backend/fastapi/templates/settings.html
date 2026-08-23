@@ -1007,9 +1007,9 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
 
         <label class="s-label" for="external_api_token" style="margin-top:1rem">TOKEN (Bearer)</label>
         <div class="multi-item" style="margin-top:0.25rem">
-            <input type="text" id="external_api_token" class="s-input"
+            <input type="password" id="external_api_token" class="s-input"
                 value="{{ settings.external_api_token or '' }}"
-                placeholder="Bearer token of the API" autocomplete="off">
+                placeholder="Bearer token of the API">
         </div>
     </div>
 
