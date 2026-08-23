@@ -164,16 +164,14 @@ async def media_management_page(request: Request, media_type: str = "movie", cus
 
 
 #----- Episode coverage (uploaded vs full season list from Cinemeta)
-@router.get("/api/media/coverage/{tmdb_id}")
-async def media_coverage_api(tmdb_id: int, db_index: int = 1, refresh: bool = False, _: bool = Depends(require_auth)):
+async def media_coverage_api(request: Request, tmdb_id: int, db_index: int = 1, refresh: bool = False, _: bool = Depends(require_auth)):
     doc = await db.get_document("tv", tmdb_id, db_index)
     if not doc:
         return {"coverage_pct": 0.0, "total_expected": 0, "total_have": 0, "seasons": []}
     return await compute_coverage(doc, refresh=refresh)
 
 
-@router.post("/api/media/coverage/{tmdb_id}/refresh")
-async def media_coverage_refresh_api(tmdb_id: int, db_index: int = 1, _: bool = Depends(require_auth)):
+async def media_coverage_refresh_api(request: Request, tmdb_id: int, db_index: int = 1, _: bool = Depends(require_auth)):
     doc = await db.get_document("tv", tmdb_id, db_index)
     if not doc:
         return {"ok": False, "reason": "not_found"}

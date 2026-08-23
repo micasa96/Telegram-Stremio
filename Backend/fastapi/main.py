@@ -130,6 +130,8 @@ from Backend.fastapi.routes.template_routes import (
     login_post,
     logout,
     media_management_page,
+    media_coverage_api,
+    media_coverage_refresh_api,
     public_status_page,
     settings_page,
     set_theme,
@@ -249,7 +251,15 @@ async def custom_catalogs(request: Request, _: bool = Depends(require_auth)):
 async def edit_media(request: Request, tmdb_id: int, db_index: int, media_type: str, _: bool = Depends(require_auth)):
     return await edit_media_page(request, tmdb_id, db_index, media_type, _)
 
-@app.get("/api/media/list")
+@app.get("/api/media/coverage/{tmdb_id}")
+async def api_media_coverage(request: Request, tmdb_id: int, db_index: int = Query(1), refresh: bool = Query(False), _: bool = Depends(require_auth)):
+    return await media_coverage_api(request, tmdb_id, db_index, refresh, _)
+
+
+@app.post("/api/media/coverage/{tmdb_id}/refresh")
+async def api_media_coverage_refresh(request: Request, tmdb_id: int, db_index: int = Query(1), _: bool = Depends(require_auth)):
+    return await media_coverage_refresh_api(request, tmdb_id, db_index, _)
+
 async def list_media(
     media_type: str = Query("movie", regex="^(movie|tv)$"),
     page: int = Query(1, ge=1),
