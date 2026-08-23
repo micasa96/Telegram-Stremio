@@ -255,11 +255,12 @@ async def edit_media(request: Request, tmdb_id: int, db_index: int, media_type: 
 async def api_media_coverage(request: Request, tmdb_id: int, db_index: int = Query(1), refresh: bool = Query(False), _: bool = Depends(require_auth)):
     return await media_coverage_api(request, tmdb_id, db_index, refresh, _)
 
-
 @app.post("/api/media/coverage/{tmdb_id}/refresh")
 async def api_media_coverage_refresh(request: Request, tmdb_id: int, db_index: int = Query(1), _: bool = Depends(require_auth)):
     return await media_coverage_refresh_api(request, tmdb_id, db_index, _)
 
+
+@app.get("/api/media/list")
 async def list_media(
     media_type: str = Query("movie", regex="^(movie|tv)$"),
     page: int = Query(1, ge=1),
