@@ -388,8 +388,10 @@
 
         <div class="add-row">
             <button class="add-btn" type="button" onclick="genInvite()">Generate invite code</button>
-            <span id="invite-code" style="font-family:monospace;color:var(--primary)"></span>
+            <button class="add-btn" type="button" onclick="copyInvite()">Copy</button>
         </div>
+        <textarea id="invite-code" readonly
+            style="width:100%;margin-top:0.5rem;min-height:3.2rem;font-family:monospace;font-size:0.85rem;color:var(--primary);background:var(--background);border:1px solid var(--hairline);border-radius:0.6rem;padding:0.5rem;resize:none;display:none"></textarea>
 
         <div id="admins-list" style="margin-top:1rem"></div>
     </div>
@@ -2052,9 +2054,18 @@ window.addEventListener('DOMContentLoaded', () => {
           const res = await fetch('/api/admin/invite/generate', { method: 'POST' });
           const d = await res.json();
           if (!res.ok) { showToast(d.detail || 'Error', 'error'); return; }
-          document.getElementById('invite-code').textContent = d.code;
+          const el = document.getElementById('invite-code');
+          el.value = d.code || '';
+          el.style.display = el.value ? 'block' : 'none';
           showToast('Invite code generated (one-time, 7 days).', 'success');
         } catch (e) { showToast('Request failed', 'error'); }
+      }
+
+      async function copyInvite() {
+        const el = document.getElementById('invite-code');
+        if (!el.value) { showToast('Generate a code first', 'error'); return; }
+        try { await navigator.clipboard.writeText(el.value); showToast('Invite code copied', 'success'); }
+        catch (e) { el.select(); document.execCommand('copy'); showToast('Invite code copied', 'success'); }
       }
 
       async function loadAdmins() {
