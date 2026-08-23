@@ -414,7 +414,8 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
         #----- Honest availability for TV: only "already_available" if the
         #----- specifically requested seasons are actually in the library.
         #----- A blanket "uploaded" status is NOT enough for a partial series.
-        reason = "added"
+        #----- reason: "added"  -> new season(s) merged into the request
+        #-----         "voted"  -> nothing new, just an extra vote
         if media_type == "tv" and seasons:
             if await tv_seasons_available(tmdb_id, seasons):
                 reason = "already_available"
@@ -422,32 +423,30 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
                 # reopen/keep pending so the missing seasons stay requested
                 if existing.get("status") != "pending":
                     update["$set"]["status"] = "pending"
-                reason = "added"
+                reason = "added" if new_seasons else "voted"
         else:
             if existing.get("status") == "uploaded":
                 reason = "already_available"
             elif existing.get("status") == "denied":
                 update["$set"]["status"] = "pending"
                 reason = "reopened"
+            else:
+                reason = "voted" if not new_seasons else "added"
 
         await _coll().update_one({"_id": existing["_id"]}, update)
 
         #----- If new seasons were actually added to an existing request,
         #----- re-notify Telegram + external API so the new seasons are acted on
-        #----- (not just silently merged into the DB).
+        #----- (not just silently merged into the DB). Both targets receive ONE
+        #----- message per new season (Telegram + external API share the
+        #----- per-season contract your downstream API is built around).
         if new_seasons:
-            merged = dict(existing)
-            merged["season_numbers"] = sorted(set((existing.get("season_numbers") or []) + seasons))
-            merged["status"] = (await _coll().find_one({"_id": existing["_id"]}) or {}).get("status", merged.get("status"))
-            notify_new_request(merged)
-            #----- External API expects ONE message per season (it keeps its own
-            #----- dedup DB and ignores repeats). Send a SEPARATE POST for each
-            #----- newly requested season so they arrive un-merged, exactly as if
-            #----- different users had requested them.
             for s in sorted(new_seasons):
-                ext_doc = dict(merged)
-                ext_doc["season_numbers"] = [s]
-                notify_external_api(ext_doc)
+                single = dict(existing)
+                single["season_numbers"] = [s]
+                single["status"] = (await _coll().find_one({"_id": existing["_id"]}) or {}).get("status", single.get("status"))
+                notify_new_request(single)
+                notify_external_api(single)
 
         return {"ok": True, "reason": reason, "title": existing.get("title")}
 

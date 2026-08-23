@@ -213,7 +213,8 @@ async function sendRequest(idx, seasonsArg) {
     const data = await res.json();
     const map = {
       created:            ['🎉 ¡Solicitud enviada! Intentaremos agregarlo pronto.', 'success', 'Solicitado'],
-      added:              ['👍 Sumaste tu voto — ya estaba solicitado.', 'success', 'Solicitado'],
+      added:              ['✅ Temporada(s) agregada(s) a tu solicitud.', 'success', 'Solicitado'],
+      voted:              ['👍 Ya estaba solicitado — sumaste tu voto.', 'success', 'Solicitado'],
       reopened:           ['🔄 Solicitud reabierta. ¡Gracias!', 'success', 'Solicitado'],
       already_available:  ['✅ Buenas noticias — ¡ya está en la biblioteca!', 'info', 'Disponible'],
       banned:             ['🚫 Este título está bloqueado y no se puede solicitar.', 'error', 'No permitido'],
@@ -222,7 +223,23 @@ async function sendRequest(idx, seasonsArg) {
     const m = map[data.reason] || (data.ok ? ['¡Solicitud enviada!', 'success', 'Solicitado']
                                             : ['Algo salió mal.', 'error', 'Error']);
     showToast(m[0], m[1], m[2]);
-    if (data.ok) loadPopular();
+    if (data.ok) {
+      //----- Clear this card's season selection so a later click does not
+      //----- silently re-send already-requested seasons (and re-notify).
+      selectedSeasons[idx] = [];
+      const card = document.querySelectorAll('#rp-results .rp-card')[idx];
+      if (card) {
+        card.querySelectorAll('.rp-season-chip').forEach(c => c.classList.remove('on'));
+        const actions = card.querySelector('.rp-season-actions');
+        if (actions) {
+          const st = r.seasons_status || { all: [] };
+          actions.innerHTML = (st.all && st.all.length
+            ? `<button class="rp-btn ghost" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-film"></i> Pedir serie completa</button>`
+            : `<button class="rp-btn" onclick="sendRequest(${idx}, null)"><i class="fa-solid fa-paper-plane"></i> Solicitar</button>`);
+        }
+      }
+      loadPopular();
+    }
   } catch (err) {
     showToast('La solicitud falló. Inténtalo de nuevo.', 'error', 'Error');
   }

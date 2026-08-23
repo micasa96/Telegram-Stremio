@@ -74,7 +74,7 @@ from Backend.helper.subtitles import (
 )
 from Backend.logger import LOGGER
 import Backend.pyrofork.bot as botmod
-from Backend.helper.announcer import delete_announcement_async
+from Backend.helper.announcer import delete_announcement_async, announce_new_media
 from Backend.pyrofork.bot import (
     StreamBot,
     client_avg_mbps,
@@ -1326,6 +1326,7 @@ async def manual_add_media_api(payload: dict) -> dict:
         )
         if not updated_id:
             raise HTTPException(status_code=500, detail="Failed to add media (validation error).")
+        announce_new_media(metadata_info)
         await stamp_caption_by_ref(client, p_channel, p_msg, metadata_info)
 
     result_tmdb_id = base["tmdb_id"]
