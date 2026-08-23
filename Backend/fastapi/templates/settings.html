@@ -285,8 +285,10 @@
                 <label class="s-label">Your API Token (for scripts)</label>
                 <div class="add-row">
                     <button class="add-btn" type="button" onclick="loadMyToken()">Show my token</button>
-                    <span id="me-token" style="font-family:monospace;color:var(--primary);word-break:break-all"></span>
+                    <button class="add-btn" type="button" onclick="copyMyToken()">Copy</button>
                 </div>
+                <textarea id="me-token" readonly
+                    style="width:100%;margin-top:0.5rem;min-height:3.2rem;font-family:monospace;font-size:0.78rem;color:var(--primary);background:var(--background);border:1px solid var(--hairline);border-radius:0.6rem;padding:0.5rem;resize:none;display:none"></textarea>
                 <button class="add-btn" type="button" onclick="saveMyPassword()" style="margin-top:0.5rem">Save new password</button>
             </div>
         </div>
@@ -2099,8 +2101,17 @@ window.addEventListener('DOMContentLoaded', () => {
         try {
           const res = await fetch('/api/admin/me/token');
           const d = await res.json();
-          document.getElementById('me-token').textContent = d.api_token || '';
+          const el = document.getElementById('me-token');
+          el.value = d.api_token || '';
+          el.style.display = el.value ? 'block' : 'none';
         } catch (e) { showToast('Failed to load token', 'error'); }
+      }
+
+      async function copyMyToken() {
+        const el = document.getElementById('me-token');
+        if (!el.value) { showToast('Show your token first', 'error'); return; }
+        try { await navigator.clipboard.writeText(el.value); showToast('Token copied', 'success'); }
+        catch (e) { el.select(); document.execCommand('copy'); showToast('Token copied', 'success'); }
       }
 
       async function saveMyPassword() {

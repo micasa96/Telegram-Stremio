@@ -9,6 +9,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from Backend.fastapi.security.credentials import (
     get_current_user,
@@ -19,6 +20,21 @@ from Backend.fastapi.security.credentials import (
 from Backend.helper import admin_users
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
+
+
+class RegisterBody(BaseModel):
+    username: str
+    password: str
+    invite_code: str
+
+
+class AdminTargetBody(BaseModel):
+    target: str
+    new_password: str = ""
+
+
+class AdminTargetOnlyBody(BaseModel):
+    target: str
 
 
 #----- Owner: generate a one-time invite code -------------------------------
@@ -47,54 +63,57 @@ async def list_admins(request: Request, _: bool = Depends(require_owner)):
 
 #----- Owner: reset an admin's password -------------------------------------
 @router.post("/admins/reset-password")
-async def reset_password(request: Request, target: str, new_password: str,
-                         _: bool = Depends(require_owner)):
+async def reset_password(body: AdminTargetBody, _: bool = Depends(require_owner)):
     try:
-        await admin_users.owner_reset_password(target, new_password)
+        await admin_users.owner_reset_password(body.target, body.new_password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "target": target}
+    return {"ok": True, "target": body.target}
 
 
 #----- Owner: regenerate an admin's API token -------------------------------
 @router.post("/admins/regenerate-token")
-async def regenerate_token(request: Request, target: str, _: bool = Depends(require_owner)):
+async def regenerate_token(body: AdminTargetOnlyBody, _: bool = Depends(require_owner)):
     try:
-        token = await admin_users.owner_regenerate_token(target)
+        token = await admin_users.owner_regenerate_token(body.target)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "target": target, "api_token": token}
+    return {"ok": True, "target": body.target, "api_token": token}
 
 
 #----- Owner: delete an admin -----------------------------------------------
 @router.post("/admins/delete")
-async def delete_admin(request: Request, target: str, _: bool = Depends(require_owner)):
+async def delete_admin(body: AdminTargetOnlyBody, _: bool = Depends(require_owner)):
     try:
-        await admin_users.owner_delete_admin(target)
+        await admin_users.owner_delete_admin(body.target)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "target": target}
+    return {"ok": True, "target": body.target}
 
 
 #----- Public: register a new admin using an invite code --------------------
 @router.post("/register")
-async def register(request: Request, username: str, password: str, invite_code: str):
+async def register(body: RegisterBody):
     try:
-        result = await admin_users.register_admin(username, password, invite_code)
+        result = await admin_users.register_admin(
+            body.username, body.password, body.invite_code)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, **result}
 
 
 #----- Current admin: change OWN password -----------------------------------
+class OwnPasswordBody(BaseModel):
+    new_password: str
+
+
 @router.post("/me/password")
-async def change_own_password(request: Request, new_password: str,
-                              _: bool = Depends(lambda r: True if get_current_user(r) else _unauth())):
+async def change_own_password(body: OwnPasswordBody, request: Request):
     username = get_current_user(request)
     if not username:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        await admin_users.update_own_password(username, new_password)
+        await admin_users.update_own_password(username, body.new_password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
