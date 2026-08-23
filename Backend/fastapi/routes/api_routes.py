@@ -2325,6 +2325,7 @@ LOG_FILE = "log.txt"
 async def get_db_stats_api() -> dict:
     try:
         total_movies = total_tv = total_episodes = total_streams = total_db_size = 0
+        total_movies_bytes = total_tv_bytes = 0
 
         for i in range(1, db.current_db_index + 1):
             storage = db.dbs.get(f"storage_{i}")
@@ -2333,6 +2334,8 @@ async def get_db_stats_api() -> dict:
 
             total_movies += await storage["movie"].count_documents({})
             async for movie in storage["movie"].find({}, {"telegram": 1}):
+                for t in movie.get("telegram", []):
+                    total_movies_bytes += int(t.get("file_size", 0) or 0)
                 total_streams += len(movie.get("telegram", []))
 
             total_tv += await storage["tv"].count_documents({})
@@ -2340,6 +2343,8 @@ async def get_db_stats_api() -> dict:
                 for season in show.get("seasons", []):
                     for episode in season.get("episodes", []):
                         total_episodes += 1
+                        for t in episode.get("telegram", []):
+                            total_tv_bytes += int(t.get("file_size", 0) or 0)
                         total_streams += len(episode.get("telegram", []))
 
             try:
@@ -2347,6 +2352,7 @@ async def get_db_stats_api() -> dict:
             except Exception:
                 pass
 
+        total_bytes = total_movies_bytes + total_tv_bytes
         return {
             "status": "success",
             "data": {
@@ -2357,6 +2363,12 @@ async def get_db_stats_api() -> dict:
                 "streams": total_streams,
                 "uptime": get_readable_time(int(time() - StartTime)),
                 "db_size": get_readable_file_size(total_db_size),
+                "movies_bytes": total_movies_bytes,
+                "tv_bytes": total_tv_bytes,
+                "total_bytes": total_bytes,
+                "movies_readable": get_readable_file_size(total_movies_bytes),
+                "tv_readable": get_readable_file_size(total_tv_bytes),
+                "total_readable": get_readable_file_size(total_bytes),
                 "storage_dbs": db.current_db_index,
                 "auth_channels": len(SettingsManager.current().auth_channels),
             },

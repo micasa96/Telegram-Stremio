@@ -324,9 +324,9 @@
                     <span>${mediaType === 'movie' ? 'Movie' : 'TV Show'}</span>
                 </div>
 
-                <div class="mt-4 flex gap-2">
+                <div class="mt-4 flex flex-wrap gap-2">
                     <a href="/media/edit?tmdb_id=${encodeURIComponent(item.tmdb_id)}&db_index=${encodeURIComponent(item.db_index)}&media_type=${encodeURIComponent(mediaType)}&page=${currentPage}${currentSearch ? `&search=${encodeURIComponent(currentSearch)}` : ''}"
-                       class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-2xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition shadow-lg shadow-primary/20">
+                       class="flex-1 min-w-[80px] inline-flex items-center justify-center gap-2 px-3 py-2 rounded-2xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition shadow-lg shadow-primary/20">
                         <i class="fa-solid fa-pen-to-square"></i> Edit
                     </a>
                     <button onclick="deleteMedia(this)"
@@ -339,7 +339,7 @@
                     ${mediaType === 'tv' ? `
                     <button onclick="openCoverage('${item.tmdb_id}', '${item.db_index ?? ''}')"
                             title="Episode coverage"
-                            class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-2xl bg-sky-500/90 hover:bg-sky-500 text-white text-xs font-bold transition border border-sky-400/40">
+                            class="flex-1 min-w-[90px] inline-flex items-center justify-center gap-2 px-3 py-2 rounded-2xl bg-sky-500/90 hover:bg-sky-500 text-white text-xs font-bold transition border border-sky-400/40">
                         <i class="fa-solid fa-layer-group"></i> Coverage
                     </button>` : ''}
                 </div>

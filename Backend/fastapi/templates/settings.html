@@ -153,6 +153,20 @@
 }
 .stat-box .v { font-size: 1.3rem; font-weight: 800; }
 .stat-box .l { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-sec); }
+.storage-summary {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+    border-radius: 1rem; padding: 0.9rem 1rem;
+}
+.ss-head { display:flex; align-items:center; gap:0.5rem; font-weight:800; font-size:0.95rem; color:var(--text); }
+.ss-infinite { margin-left:auto; font-size:0.7rem; font-weight:700; color:var(--primary);
+    background:color-mix(in srgb,var(--primary) 15%,transparent); padding:0.15rem 0.55rem; border-radius:999px; }
+.ss-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:0.6rem; margin-top:0.7rem; }
+.ss-card { background:color-mix(in srgb,var(--bg) 55%,transparent); border:1px solid var(--border); border-radius:0.75rem; padding:0.6rem 0.7rem; }
+.ss-card .ss-v { font-size:1.25rem; font-weight:800; color:var(--text); }
+.ss-card .ss-l { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-sec); margin-top:0.15rem; }
+.ss-card.ss-total { background:color-mix(in srgb,var(--primary) 14%,transparent); border-color:color-mix(in srgb,var(--primary) 40%,var(--border)); }
+.ss-card.ss-total .ss-v { color:var(--primary); }
 .hint { font-size: 0.78rem; color: var(--text-sec); }
 </style>
 
@@ -1944,7 +1958,19 @@ async function loadDbStats(btn) {
         const data = await res.json();
         if (data.status !== 'success') throw new Error(data.message || 'failed');
         const s = data.data;
-        grid.innerHTML = STAT_FIELDS.map(([k, label]) =>
+        const storageBlock = `
+            <div class="storage-summary" style="grid-column:1/-1">
+                <div class="ss-head">
+                    <i class="fa-solid fa-database"></i> Stored Content
+                    <span class="ss-infinite" title="No storage limit set"><i class="fa-solid fa-infinity"></i> unlimited</span>
+                </div>
+                <div class="ss-cards">
+                    <div class="ss-card"><div class="ss-v">${s.movies_readable ?? '—'}</div><div class="ss-l">Movies (${s.movies ?? 0})</div></div>
+                    <div class="ss-card"><div class="ss-v">${s.tv_readable ?? '—'}</div><div class="ss-l">TV Shows (${s.tv_shows ?? 0})</div></div>
+                    <div class="ss-card ss-total"><div class="ss-v">${s.total_readable ?? '—'}</div><div class="ss-l">Total</div></div>
+                </div>
+            </div>`;
+        grid.innerHTML = storageBlock + STAT_FIELDS.map(([k, label]) =>
             `<div class="stat-box"><div class="v">${escapeHtml(String(s[k] ?? '—'))}</div><div class="l">${label}</div></div>`
         ).join('');
     } catch (e) {
