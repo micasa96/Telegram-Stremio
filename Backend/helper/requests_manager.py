@@ -404,8 +404,12 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
         if tmdb_id and not existing.get("tmdb_id"):
             update["$set"]["tmdb_id"] = tmdb_id
         # merge requested seasons into the existing request
+        new_seasons = []
         if seasons:
-            update["$addToSet"]["season_numbers"] = {"$each": seasons}
+            prev = set(existing.get("season_numbers") or [])
+            new_seasons = [s for s in seasons if s not in prev]
+            if new_seasons:
+                update["$addToSet"]["season_numbers"] = {"$each": seasons}
 
         #----- Honest availability for TV: only "already_available" if the
         #----- specifically requested seasons are actually in the library.
@@ -427,6 +431,24 @@ async def submit_request(*, media_type, tmdb_id, imdb_id, title, year, poster, c
                 reason = "reopened"
 
         await _coll().update_one({"_id": existing["_id"]}, update)
+
+        #----- If new seasons were actually added to an existing request,
+        #----- re-notify Telegram + external API so the new seasons are acted on
+        #----- (not just silently merged into the DB).
+        if new_seasons:
+            merged = dict(existing)
+            merged["season_numbers"] = sorted(set((existing.get("season_numbers") or []) + seasons))
+            merged["status"] = (await _coll().find_one({"_id": existing["_id"]}) or {}).get("status", merged.get("status"))
+            notify_new_request(merged)
+            #----- External API expects ONE message per season (it keeps its own
+            #----- dedup DB and ignores repeats). Send a SEPARATE POST for each
+            #----- newly requested season so they arrive un-merged, exactly as if
+            #----- different users had requested them.
+            for s in sorted(new_seasons):
+                ext_doc = dict(merged)
+                ext_doc["season_numbers"] = [s]
+                notify_external_api(ext_doc)
+
         return {"ok": True, "reason": reason, "title": existing.get("title")}
 
     #----- Not requested before: check honest availability before creating
