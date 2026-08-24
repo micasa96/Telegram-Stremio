@@ -259,6 +259,10 @@
                 <input type="checkbox" id="create-lifetime" class="w-4 h-4" checked>
                 Never expires <span class="text-soft text-xs">(no expiry date; works even when subscription mode is ON)</span>
             </label>
+            <div class="modal-field">
+                <label>WebDAV Path Restriction <span class="text-soft text-xs">(optional — limits this token to a WebDAV subfolder, e.g. /LatAddon)</span></label>
+                <input type="text" id="create-path-prefix" placeholder="/LatAddon" class="glass-input">
+            </div>
         </div>
 
         <div class="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-6">
@@ -584,6 +588,7 @@
         document.getElementById('create-daily').value = 0;
         document.getElementById('create-monthly').value = 0;
         document.getElementById('create-lifetime').checked = true;
+        document.getElementById('create-path-prefix').value = '';
         openModal('create-modal');
     }
 
@@ -595,6 +600,7 @@
             daily_limit_gb: Number(document.getElementById('create-daily').value || 0),
             monthly_limit_gb: Number(document.getElementById('create-monthly').value || 0),
             subscription_exempt: document.getElementById('create-lifetime').checked,
+            path_prefix: (document.getElementById('create-path-prefix').value || '').trim() || null,
         };
         try {
             const resp = await fetch('/api/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

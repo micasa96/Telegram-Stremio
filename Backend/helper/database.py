@@ -2179,7 +2179,7 @@ class Database:
     #----- API Token Methods
     #-----
 
-    async def add_api_token(self, name: str, daily_limit_gb: float = None, monthly_limit_gb: float = None, user_id: int = None, subscription_exempt: bool = False) -> dict:
+    async def add_api_token(self, name: str, daily_limit_gb: float = None, monthly_limit_gb: float = None, user_id: int = None, subscription_exempt: bool = False, path_prefix: str = None) -> dict:
         #----- If a user_id is provided, return existing token if already created
         if user_id:
             existing = await self.dbs["tracking"]["api_tokens"].find_one({"user_id": user_id})
@@ -2189,12 +2189,20 @@ class Database:
         alphabet = string.ascii_letters + string.digits
         token = ''.join(secrets.choice(alphabet) for _ in range(32))
 
+        # normalize path_prefix: leading slash, no trailing slash, or None
+        norm_prefix = None
+        if path_prefix:
+            norm_prefix = "/" + str(path_prefix).strip().strip("/")
+            if norm_prefix == "/":
+                norm_prefix = None
+
         token_doc = {
             "name": name,
             "token": token,
             "user_id": user_id,
             "is_admin": self._is_owner(user_id),
             "subscription_exempt": bool(subscription_exempt),
+            "path_prefix": norm_prefix,
             "expires_at": None,
             "created_at": datetime.utcnow(),
             "limits": {

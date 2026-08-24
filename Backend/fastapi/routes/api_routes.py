@@ -343,6 +343,7 @@ async def create_token_api(payload: dict):
             _parse_limit(payload.get("daily_limit_gb")),
             _parse_limit(payload.get("monthly_limit_gb")),
             subscription_exempt=bool(payload.get("subscription_exempt")),
+            path_prefix=payload.get("path_prefix") or None,
         )
         return new_token
     except HTTPException:
