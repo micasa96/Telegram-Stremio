@@ -220,10 +220,18 @@ class WebDAVFilesystem:
         def _doc_is_lataddon(doc: dict) -> bool:
             if not lataddon_channels:
                 return False
+            # movies: channel lives at doc.telegram[].chat_id
             for q in (doc.get("telegram") or []):
                 cid = str(q.get("chat_id") or "").strip().replace("-100", "")
                 if cid in lataddon_channels:
                     return True
+            # tv: channel lives inside seasons -> episodes -> telegram[].chat_id
+            for season in (doc.get("seasons") or []):
+                for ep in (season.get("episodes") or []):
+                    for q in (ep.get("telegram") or []):
+                        cid = str(q.get("chat_id") or "").strip().replace("-100", "")
+                        if cid in lataddon_channels:
+                            return True
             return False
 
         movie_count = 0
@@ -259,7 +267,7 @@ class WebDAVFilesystem:
                     folder_path = f"{target_movies_dir.path}/{folder}"
                     fnode = VNode(path=folder_path, name=folder, is_dir=True,
                                   media_type="movie", tmdb_id=doc.get("tmdb_id"), db_index=db_index)
-                    movies_dir.children[folder] = fnode
+                    target_movies_dir.children[folder] = fnode
 
                     # NFO
                     nfo_name = f"{folder}.nfo"
@@ -307,7 +315,7 @@ class WebDAVFilesystem:
                     folder_path = f"{target_shows_dir.path}/{folder}"
                     snode = VNode(path=folder_path, name=folder, is_dir=True,
                                   media_type="tv", tmdb_id=doc.get("tmdb_id"), db_index=db_index)
-                    shows_dir.children[folder] = snode
+                    target_shows_dir.children[folder] = snode
 
                     # tvshow.nfo
                     nfo_bytes = tvshow_nfo(doc).encode("utf-8")
