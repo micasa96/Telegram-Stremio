@@ -217,20 +217,36 @@ class WebDAVFilesystem:
             lataddon_dir.children["TV Shows"] = lataddon_shows_dir
             root.children["LatAddon"] = lataddon_dir
 
+        def _channel_ids_of(quality: dict) -> set:
+            """Extract all normalized channel ids from a QualityDetail.
+
+            The channel can live at two places depending on how the quality was
+            stored:
+              - quality["chat_id"]                 (top-level, used by movies)
+              - quality["parts"][*]["chat_id"]     (episodes / split files)
+            """
+            ids = set()
+            c = str(quality.get("chat_id") or "").strip().replace("-100", "")
+            if c:
+                ids.add(c)
+            for part in (quality.get("parts") or []):
+                pc = str(part.get("chat_id") or "").strip().replace("-100", "")
+                if pc:
+                    ids.add(pc)
+            return ids
+
         def _doc_is_lataddon(doc: dict) -> bool:
             if not lataddon_channels:
                 return False
-            # movies: channel lives at doc.telegram[].chat_id
+            # movies: channel lives at doc.telegram[].chat_id (or parts[].chat_id)
             for q in (doc.get("telegram") or []):
-                cid = str(q.get("chat_id") or "").strip().replace("-100", "")
-                if cid in lataddon_channels:
+                if any(cid in lataddon_channels for cid in _channel_ids_of(q)):
                     return True
-            # tv: channel lives inside seasons -> episodes -> telegram[].chat_id
+            # tv: channel lives inside seasons -> episodes -> telegram[].chat_id/parts
             for season in (doc.get("seasons") or []):
                 for ep in (season.get("episodes") or []):
                     for q in (ep.get("telegram") or []):
-                        cid = str(q.get("chat_id") or "").strip().replace("-100", "")
-                        if cid in lataddon_channels:
+                        if any(cid in lataddon_channels for cid in _channel_ids_of(q)):
                             return True
             return False
 

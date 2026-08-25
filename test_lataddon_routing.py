@@ -36,15 +36,15 @@ class FakeDB:
 fake_db = FakeDB(
     movies=[
         {"tmdb_id": 1, "title": "My Movie", "release_year": 2020,
-         "telegram": [{"chat_id": "111", "id": "x1", "name": "My Movie.mkv", "quality": "1080p", "size_bytes": 1000, "parts": []}]},
+         "telegram": [{"id": "x1", "name": "My Movie.mkv", "quality": "1080p", "parts": [{"chat_id": "111", "msg_id": 1}]}]},
         {"tmdb_id": 2, "title": "Partner Film", "release_year": 2021,
-         "telegram": [{"chat_id": "999", "id": "x2", "name": "Partner Film.mkv", "quality": "1080p", "size_bytes": 2000, "parts": []}]},
+         "telegram": [{"id": "x2", "name": "Partner Film.mkv", "quality": "1080p", "parts": [{"chat_id": "999", "msg_id": 2}]}]},
     ],
     tvs=[
         {"tmdb_id": 3, "title": "My Show", "release_year": 2019, "telegram": [],
-         "seasons": [{"season_number": 1, "episodes": [{"episode_number": 1, "title": "P1", "telegram": [{"chat_id": "111", "id": "e1", "name": "My Show S01E01.mkv", "quality": "1080p", "size_bytes": 500, "parts": []}]}]}]},
+         "seasons": [{"season_number": 1, "episodes": [{"episode_number": 1, "title": "P1", "telegram": [{"id": "e1", "name": "My Show S01E01.mkv", "quality": "1080p", "parts": [{"chat_id": "111", "msg_id": 11}]}]}]}]},
         {"tmdb_id": 4, "title": "Partner Series", "release_year": 2022, "telegram": [],
-         "seasons": [{"season_number": 1, "episodes": [{"episode_number": 1, "title": "P1", "telegram": [{"chat_id": "999", "id": "e2", "name": "Partner Series S01E01.mkv", "quality": "1080p", "size_bytes": 600, "parts": []}]}]}]},
+         "seasons": [{"season_number": 1, "episodes": [{"episode_number": 1, "title": "P1", "telegram": [{"id": "e2", "name": "Partner Series S01E01.mkv", "quality": "1080p", "parts": [{"chat_id": "999", "msg_id": 22}]}]}]}]},
     ],
 )
 backend.db = fake_db
