@@ -1,6 +1,7 @@
 import asyncio
 import re
 import time
+import unicodedata
 from typing import Dict, List, Optional
 
 import PTN
@@ -284,12 +285,33 @@ async def _get_chat_title(client, chat_id: int) -> str:
     return title
 
 
+def _deaccent(text: str) -> str:
+    """Strip accents / Ñ so 'Soy tu dueña' matches a channel filename like
+    'Soy tu duena'. Latino uploaders routinely drop accents, so search queries
+    must be tried both accented (TMDB) and de-accented (channel reality)."""
+    if not text:
+        return text
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 def _strip_symbols(text: str) -> str:
     if not text:
         return ""
     text = _APOSTROPHE_RE.sub("", text)
     text = _SYMBOL_STRIP_RE.sub(" ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _title_variants(title: str) -> List[str]:
+    """Base title plus a de-accented copy, de-duplicated case-insensitively."""
+    variants = [title]
+    da = _deaccent(title)
+    if da and da.lower() != title.lower():
+        variants.append(da)
+    return variants
 
 
 def _absolute_ep_forms(episode: int) -> List[str]:
@@ -324,11 +346,18 @@ def _build_query_candidates(
         if q and q.lower() not in (c.lower() for c in candidates):
             candidates.append(q)
 
+    # Season + episode: also try Latino Spanish "capitulo N" / "cap N" wording,
+    # since many channels name files "Show capitulo 13" instead of "S01E13".
+    if season is not None and episode is not None:
+        ep = int(episode)
+        for title in _title_variants(expected_title):
+            add(f"{title} S{season:02d}E{ep:02d}")
+            add(f"{title} capitulo {ep}")
+            add(f"{title} cap {ep}")
+        return candidates
+
     if season is None and episode is not None:
-        titles = [expected_title]
-        stripped_title = _strip_symbols(expected_title)
-        if stripped_title and stripped_title.lower() != expected_title.lower():
-            titles.append(stripped_title)
+        titles = _title_variants(expected_title)
         for form in _absolute_ep_forms(int(episode)):
             for title in titles:
                 add(f"{title} {form}")
