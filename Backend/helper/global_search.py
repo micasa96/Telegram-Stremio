@@ -215,10 +215,13 @@ def _validate_name_spanish(filename: str, expected_title: str, season: Optional[
     ).strip()
     if not result_title:
         result_title = raw_title
+    # Drop emoji / flag glyphs and pure-numeric noise tokens so decorated
+    # titles like "🇲🇽 LION 🇲🇽 4..." score as "LION".
+    result_title = _strip_decorations(result_title)
     # Latino uploaders drop accents/Ñ (dueña -> duena), so de-accent both sides
     # before scoring to avoid false title mismatches.
     result_title = _deaccent(result_title)
-    expected = _deaccent(expected_title)
+    expected = _strip_decorations(_deaccent(expected_title))
     score = _title_score(result_title, expected)
     if score < MIN_TITLE_SCORE:
         stripped_expected = _strip_symbols(expected)
@@ -339,6 +342,29 @@ def _deaccent(text: str) -> str:
         c for c in unicodedata.normalize("NFD", text)
         if unicodedata.category(c) != "Mn"
     )
+
+
+# Emoji / flag glyph ranges (flags are pairs of regional-indicator symbols).
+_DECORATION_RE = re.compile(
+    "[\U0001F1E6-\U0001F1FF\U0001F000-\U0001FAFF\U00002600-\U000027BF"
+    "\U0000FE00-\U0000FE0F\U00002190-\U000021FF\U00002B00-\U00002BFF]",
+    re.UNICODE,
+)
+
+
+def _strip_decorations(text: str) -> str:
+    """Remove emoji / flag glyphs and pure numeric-noise tokens so a decorated
+    channel filename like '🇲🇽 LION 🇲🇽 4...- S11E12' scores cleanly as 'LION'.
+    Only affects title *comparison* — the raw filename shown to the user is
+    untouched."""
+    if not text:
+        return ""
+    text = _DECORATION_RE.sub(" ", text)
+    toks = [
+        t for t in re.split(r"[\s._\-]+", text)
+        if t and not re.fullmatch(r"[\d.\-]+", t)
+    ]
+    return " ".join(toks).strip()
 
 
 def _strip_symbols(text: str) -> str:
