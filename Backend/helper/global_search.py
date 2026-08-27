@@ -22,6 +22,7 @@ from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.encrypt import encode_string
 from Backend.helper.pyro import get_readable_file_size
 from Backend.helper.split_files import parse_combined_episodes, parse_split_info, strip_part_suffix
+from Backend.helper.metadata.parse import parse_media_name as _parse_media_name
 import Backend.pyrofork.bot as botmod
 
 MAX_RESULTS = 50
@@ -183,6 +184,49 @@ def _parse_and_validate(filename: str, expected_title: str, season: Optional[int
     if _MULTIPART_RE.search(filename):
         return None
     return _validate_name(filename, expected_title, season, episode)
+
+
+def _validate_name_spanish(filename: str, expected_title: str, season: Optional[int], episode: Optional[int]) -> Optional[dict]:
+    """Like _validate_name but uses the full media-name parser so Latino
+    Spanish filenames such as 'Soy_Tu_Duena_Capitulo_5.mkv' (Capitulo with a
+    capital C, underscores, no SxxExx) are recognised as season/episode.
+    PTN alone misses 'Capitulo_5', so we route through parse_media_name which
+    understands 'capitulo N' / 'temp N' / NxNN wording."""
+    if _MULTIPART_RE.search(filename):
+        return None
+    try:
+        parsed = _parse_media_name(filename) or {}
+    except Exception as e:
+        LOGGER.warning(f"parse_media_name failed for {filename}: {e}")
+        parsed = {}
+    if _is_combined_filename(filename, parsed):
+        LOGGER.info(f"Skipping {filename}: combined episode pack")
+        return None
+    if not _matches_episode(parsed, season, episode, filename=filename):
+        return None
+    raw_title = parsed.get("title", "") or (filename or "")
+    # Strip the trailing "capitulo N" / "temporada N" wording PTN/parse leaves
+    # in the title (e.g. "Soy Tu Duena Capitulo 5") so the title score compares
+    # cleanly against the expected series name ("Soy tu dueña").
+    result_title = re.sub(
+        r"(?i)(?<![a-z0-9])(?:temporada|temp|cap[íi]tulo|cap)[._\s-]*0*\d{1,3}",
+        " ",
+        raw_title,
+    ).strip()
+    if not result_title:
+        result_title = raw_title
+    # Latino uploaders drop accents/Ñ (dueña -> duena), so de-accent both sides
+    # before scoring to avoid false title mismatches.
+    result_title = _deaccent(result_title)
+    expected = _deaccent(expected_title)
+    score = _title_score(result_title, expected)
+    if score < MIN_TITLE_SCORE:
+        stripped_expected = _strip_symbols(expected)
+        if stripped_expected and stripped_expected.lower() != expected.lower():
+            score = _title_score(result_title, _deaccent(stripped_expected))
+    if score < MIN_TITLE_SCORE:
+        return None
+    return parsed
 
 
 def _split_part_info(filename: str) -> Optional[tuple]:
@@ -434,7 +478,7 @@ async def _search_channel(
                     filename = _video_filename(message)
                     if not filename:
                         continue
-                    parsed = _parse_and_validate(filename, expected_title, season, episode)
+                    parsed = _validate_name_spanish(filename, expected_title, season, episode)
                     if parsed is None:
                         continue
 
@@ -703,7 +747,7 @@ async def _run_true_global_search(
                         filename = _video_filename(message)
                         if not filename:
                             continue
-                        parsed = _parse_and_validate(filename, expected_title, season, episode)
+                        parsed = _validate_name_spanish(filename, expected_title, season, episode)
                         if parsed is None:
                             continue
 
