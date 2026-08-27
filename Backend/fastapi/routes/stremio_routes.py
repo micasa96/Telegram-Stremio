@@ -817,15 +817,22 @@ async def _kitsu_title_year(kitsu_id: int) -> tuple:
 
 def _streams_from_global_results(token: str, global_results: list) -> list:
     streams = []
+    # Never expose the source channel name or the original message caption to
+    # the end user — show only a neutral "Telegram" source label so private
+    # channel / chat names (e.g. "ya pi, dejame vivir") never leak into Stremio.
     for r in global_results:
         is_split = bool(r.get("is_split"))
-        _, stream_title = format_stream_details(r["title"], r["quality"], r["size"], is_split=is_split)
+        # Pass the quality as the "filename" so format_stream_details only ever
+        # derives clean tags (resolution/source/lang) and never echoes the raw
+        # caption text back to the UI.
+        _, stream_title = format_stream_details(r.get("quality") or "", r["quality"], r["size"], is_split=is_split)
         stream_name = f"🌐 GLOBAL {r['quality']}"
-        stream_title = f"{stream_title}\n📡 {r['source_chat']}"
+        stream_title = f"{stream_title}\n📡 Telegram"
         if is_split:
             kind = "zip parts" if r.get("is_zip") else "parts"
             stream_title += f" · 📦 {r.get('part_count', 0)} {kind}"
-        url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r['title'])}"
+        # Use a neutral slug in the download URL instead of the raw caption.
+        url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r.get('quality') or 'video')}"
         size_bytes = parse_size_to_bytes(r.get("size", ""))
         streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
     return streams
