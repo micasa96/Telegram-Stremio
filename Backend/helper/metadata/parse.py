@@ -29,10 +29,14 @@ _EXPLICIT_SXXEXX_RE = re.compile(r"(?i)\bs\d{1,2}[._\s-]*e\d{1,3}\b")
 _EXPLICIT_NXNN_RE = re.compile(r"(?i)\b\d{1,2}x\d{1,3}\b")
 _EXPLICIT_SEASON_WORD_RE = re.compile(r"(?i)\b(?:season|series)\s*0*\d{1,2}\b")
 # Latino Spanish wording: "temporada N" / "temp N" (season) and
-# "capitulo N" / "capítulo N" / "cap N" (episode). "temporada 4 capitulo 2"
-# -> season 4, episode 2; bare "capitulo 2" -> season 1, episode 2.
+# "capitulo N" / "capítulo N" / "cap N" (episode). Tolerates "_" / "." as the
+# separator (uploaders write "Soy_Tu_Duena_Capitulo_5.mkv"). The leading word
+# boundary is replaced by a negative lookbehind for [a-z0-9] because "_" is a
+# word char, so "\bcapitulo" would NOT match after "Duena_Capitulo" (no
+# word→non-word transition). The trailing boundary is also omitted because the
+# number is often glued to the extension ("Capitulo_5.mkv").
 _EXPLICIT_CAPITULO_RE = re.compile(
-    r"(?i)\b(?:temporada|temp|cap[íi]tulo|cap)\b\s*0*\d{1,3}\b"
+    r"(?i)(?<![a-z0-9])(?:temporada|temp|cap[íi]tulo|cap)[._\s-]*0*\d{1,3}"
 )
 
 
@@ -139,7 +143,7 @@ def parse_media_name(name: str) -> dict:
             r"(?i)\b(?:temporada|temp)\s*0*(\d{1,3})\b", name
         )
         _ep_m = re.search(
-            r"(?i)\b(?:cap[íi]tulo|cap)\s*0*(\d{1,3})\b", name
+            r"(?i)(?<![a-z0-9])(?:cap[íi]tulo|cap)[._\s-]*0*(\d{1,3})", name
         )
         if _ep_m is not None:
             try:
