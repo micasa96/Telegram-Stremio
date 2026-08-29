@@ -39,6 +39,7 @@ _DEFAULTS: Dict[str, Any] = {
     "global_search_channels": [],
     "anime_channels": [],
     "manual_channels": [],
+    "lataddon_channels": [],
     "channel_titles": {},
     "announce_new_content": False,
     "announcement_channel": "",
@@ -142,6 +143,12 @@ class Settings:
     @property
     def manual_channels(self) -> List[str]:
         return list(self._d.get("manual_channels") or [])
+
+    @property
+    def lataddon_channels(self) -> List[str]:
+        # channel IDs whose content is mirrored into the /LatAddon WebDAV folder
+        # (shared with partners). Normalized (no -100 prefix) for matching.
+        return [str(c).strip().replace("-100", "") for c in (self._d.get("lataddon_channels") or []) if str(c).strip()]
 
     @property
     def channel_titles(self) -> Dict[str, str]:

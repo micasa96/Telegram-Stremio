@@ -577,6 +577,23 @@
         </div>
     </div>
 
+    <!-- ── LatAddon (partner content) ─────────────────────────────────── -->
+    <div class="settings-card">
+        <h2><i class="fa-solid fa-people-arrows"></i> LatAddon (Partner Content)</h2>
+        <span style="color:var(--text-sec);font-size:0.82rem;display:block;margin-bottom:1rem">
+            Channels listed below are mirrored into a dedicated <code>/LatAddon</code> folder on the WebDAV
+            (Movies &amp; TV Shows), so partners can mount just that content via rclone. Your own catalog
+            and access are unchanged — this is an extra read-only window onto the same files.
+        </span>
+        <label class="s-label" for="lataddon_channels">LATADDON CHANNEL IDS <span style="font-weight:400;text-transform:none;letter-spacing:0">(one per line)</span></label>
+        <textarea id="lataddon_channels" class="s-input" rows="3"
+            placeholder="-100xxxxxxxxxx&#10;-100yyyyyyyyyy">{{ settings.lataddon_channels | join('\n') }}</textarea>
+        <span style="color:var(--text-sec);font-size:0.78rem;display:block;margin-top:0.4rem">
+            Every file arriving in these channels is also exposed under <code>/LatAddon</code> on the WebDAV.
+            Generate a WebDAV-only token (Settings → WebDAV) and share it with partners to mount that folder.
+        </span>
+    </div>
+
     <!-- ── Subscription ────────────────────────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-credit-card"></i> Subscription</h2>
@@ -1692,6 +1709,10 @@ async function saveSettings() {
         global_search:                 document.getElementById('global_search').checked,
         global_search_channels:        collectList('global_search_channels'),
         manual_channels:               collectList('manual_channels'),
+        lataddon_channels:             (document.getElementById('lataddon_channels').value || '')
+                                            .split('\n')
+                                            .map(s => s.trim().replace('-100', ''))
+                                            .filter(s => s.length > 0),
         announce_new_content:          document.getElementById('announce_new_content').checked,
         announcement_channel:          (function(){const el=document.getElementById('announcement_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
         skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
