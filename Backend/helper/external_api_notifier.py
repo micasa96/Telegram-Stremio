@@ -29,6 +29,8 @@ def _build_payload(doc: dict) -> dict:
         "tipo": "series" if is_tv else "movies",
         # Película -> 0; Serie -> mayor temporada pedida (0 si no se eligió ninguna)
         "temporada": max(seasons) if (is_tv and seasons) else 0,
+        # Episodio específico (solo desde Stremio stream prompt; 0 = toda la temporada o movie)
+        "episodio": (doc.get("episode_num") or 0),
     }
 
 

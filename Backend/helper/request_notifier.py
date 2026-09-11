@@ -154,6 +154,7 @@ async def queue_stream_request(media_id: str, token_data: dict | None, referer: 
         poster=(hit["poster"] if hit else ""),
         client_ip=None,           # unknown from Stremio player; hash stays empty
         season_numbers=seasons,
+        episode_num=episode_num,  # → webhook recibirá el número de episodio
     )
     return result or {"ok": False, "reason": "unresolved"}
 
