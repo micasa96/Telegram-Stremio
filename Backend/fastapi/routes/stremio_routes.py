@@ -1154,7 +1154,7 @@ async def get_streams(
             "streams": [
                 {
                     "name": "📢 Solicitar contenido",
-                    "title": "📩 No hay streams disponibles todavía.\\nHacé clic para solicitarlo — te avisamos cuando esté listo.",
+                    "title": "📩 No hay streams disponibles todavía. Hacé clic para solicitarlo — te avisamos cuando esté listo.",
                     "url": _redirect_url,
                     "behaviorHints": {"notWebReady": True},  # tells Stremio NOT to attempt media playback
                 }
@@ -1208,14 +1208,14 @@ async def request_stream(
         from Backend.helper.request_notifier import queue_stream_request
         result = await queue_stream_request(media_id, token_data, referer)
         # Return HTML page: JS calls the webhook, then meta-refresh to /requests
-        html = f"""<html><head><meta http-equiv="refresh" content="3;url=/requests?submitted=1">
+        html = f"""<html><head><meta http-equiv="refresh" content="0;url=/requests?submitted=1">
         <script>
         fetch('/stremio/{token}/_fire-request/{quote(media_id)}')
           .then(r => r.json())
           .then(d => console.log('request', d))
           .catch(e => console.error(e));
         </script>
-        </head><body><p>📩 Solicitando contenido… te redirigimos en 3s.</p></body></html>"""
+        </head><body><p>📩 Solicitando contenido…</p></body></html>"""
         return HTMLResponse(html)
     except Exception as e:
         LOGGER.error(f"stream request failed for {media_id}: {e}")
