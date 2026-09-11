@@ -1146,14 +1146,17 @@ async def get_streams(
     if not streams:
         # No streams available — offer the user a one-click "request this title"
         # action. The imdb_id is stable and identifies the title across seasons.
+        # NOTE: Stremio follows `url` as a video fetch, so we point it at a tiny
+        # HTML redirect page that fires the request POST and then refreshes to /requests.
         _uid = imdb_id or id
-        _request_url = f"{SettingsManager.current().base_url}/stremio/request-stream/{token}/{quote(str(_uid))}"
+        _redirect_url = f"{SettingsManager.current().base_url}/stremio/{token}/request-stream/{quote(str(_uid))}?from=stremio"
         return {
             "streams": [
                 {
                     "name": "📢 Solicitar contenido",
                     "title": "📩 No hay streams disponibles todavía.\\nHacé clic para solicitarlo — te avisamos cuando esté listo.",
-                    "url": _request_url,
+                    "url": _redirect_url,
+                    "behaviorHints": {"notWebReady": True},  # tells Stremio NOT to attempt media playback
                 }
             ]
         }
@@ -1181,27 +1184,57 @@ async def get_streams(
 
 #----- Stream a "solicitar contenido" click from the Stremio player back into
 # the request pipeline (same webhook that the public /requests page uses).
+# Returns a tiny HTML page with a meta-refresh so Stremio (which follows the
+# stream `url`) does NOT attempt media playback — it loads this page, the JS
+# fires the request via queue_stream_request, then redirects to /requests.
+from fastapi.responses import HTMLResponse
 @router.get("/{token}/request-stream/{media_id}")
 async def request_stream(
     token: str,
     media_id: str,
     request: Request,
+    from_query: str = None,
 ):
+    token_data = await db.get_api_token(token)
+    if not token_data:
+        return HTMLResponse(
+            "<html><body><p>❌ Token inválido o expirado.</p>"
+            "<script>window.location='/requests'</script></body></html>",
+            status_code=404
+        )
+    base = SettingsManager.current().base_url
+    referer = request.headers.get("referer") or base
+    try:
+        from Backend.helper.request_notifier import queue_stream_request
+        result = await queue_stream_request(media_id, token_data, referer)
+        # Return HTML page: JS calls the webhook, then meta-refresh to /requests
+        html = f"""<html><head><meta http-equiv="refresh" content="3;url=/requests?submitted=1">
+        <script>
+        fetch('/stremio/{token}/_fire-request/{quote(media_id)}')
+          .then(r => r.json())
+          .then(d => console.log('request', d))
+          .catch(e => console.error(e));
+        </script>
+        </head><body><p>📩 Solicitando contenido… te redirigimos en 3s.</p></body></html>"""
+        return HTMLResponse(html)
+    except Exception as e:
+        LOGGER.error(f"stream request failed for {media_id}: {e}")
+        return HTMLResponse("<html><body><p>❌ No se pudo solicitar el contenido.</p>"
+                             "<script>window.location='/requests'</script></body></html>",
+                             status_code=500)
+
+# Companion endpoint: the JS in the HTML above calls this to trigger the POST,
+# keeping the request pipeline call server-side (no CORS issues from Stremio's view).
+@router.get("/{token}/_fire-request/{media_id}")
+async def fire_request(token: str, media_id: str, request: Request):
     token_data = await db.get_api_token(token)
     if not token_data:
         return JSONResponse({"error": "invalid token"}, status_code=404)
     base = SettingsManager.current().base_url
     referer = request.headers.get("referer") or base
-    try:
-        from Backend.helper.request_notifier import queue_stream_request
-        await queue_stream_request(media_id, token_data, referer)
-        return RedirectResponse(
-            url=f"{base}/requests?requested={quote(media_id)}",
-            status_code=303,
-        )
-    except Exception as e:
-        LOGGER.error(f"stream request failed for {media_id}: {e}")
-        return JSONResponse({"error": "no se pudo solicitar el contenido"}, status_code=500)
+    from Backend.helper.request_notifier import queue_stream_request
+    result = await queue_stream_request(media_id, token_data, referer)
+    return JSONResponse({"result": result})
 
 
 #----- Configure/install landing page rendered as HTML for a token
