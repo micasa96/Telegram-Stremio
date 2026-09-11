@@ -118,3 +118,31 @@ def notify_new_request(doc: dict) -> None:
         create_task(_notify(dict(doc)))
     except RuntimeError:
         LOGGER.warning("notify_new_request called outside an event loop; skipped")
+
+
+#----- Reusable hook fired by the "Solicitar contenido" stream prompt clicked
+# from the Stremio player. Resolves the imdb_id via Cinemeta (same resolver as
+# the public /requests page) and delegates to submit_request, so the n8n /requests
+# webhook receives the EXACT same payload. Returns the same dict submit_request
+# returns: {"ok": True, "reason": ...}.
+async def queue_stream_request(media_id: str, token_data: dict | None, referer: str) -> dict:
+    from Backend.helper import requests_manager as _rm
+    imdb_id = media_id or ""
+    # Resolve title/type/tmdb_id/poster/year via Cinemeta (movie + tv attempts)
+    hits = await _rm._cinemeta_id_search(imdb_id) if imdb_id else []
+    if not hits:
+        # Fallback: try a name search on the imdb id itself
+        hits = await _rm._cinemeta_name_search(imdb_id)
+    hit = hits[0] if hits else None
+    result = await _rm.submit_request(
+        media_type=(hit["media_type"] if hit else "movie"),
+        tmdb_id=(hit["tmdb_id"] if hit else None),
+        imdb_id=imdb_id,
+        title=(hit["title"] if hit else imdb_id),
+        year=(hit["year"] if hit else None),
+        poster=(hit["poster"] if hit else ""),
+        client_ip=None,           # unknown from Stremio player; hash stays empty
+        season_numbers=[],        # whole-title request from the player prompt
+    )
+    return result or {"ok": False, "reason": "unresolved"}
+

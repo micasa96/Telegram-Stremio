@@ -7,6 +7,7 @@ from urllib.parse import quote, unquote
 
 import PTN
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import UserNotParticipant
@@ -1143,7 +1144,19 @@ async def get_streams(
             streams = filtered
 
     if not streams:
-        return {"streams": []}
+        # No streams available — offer the user a one-click "request this title"
+        # action. The imdb_id is stable and identifies the title across seasons.
+        _uid = imdb_id or id
+        _request_url = f"{SettingsManager.current().base_url}/stremio/request-stream/{token}/{quote(str(_uid))}"
+        return {
+            "streams": [
+                {
+                    "name": "📢 Solicitar contenido",
+                    "title": "📩 No hay streams disponibles todavía.\\nHacé clic para solicitarlo — te avisamos cuando esté listo.",
+                    "url": _request_url,
+                }
+            ]
+        }
 
     ascending = config.get("quality_sort") == "asc"
     if is_combined:
@@ -1165,6 +1178,31 @@ async def get_streams(
             seen[s["name"]] = seen.get(s["name"], 0) + 1
             s["name"] = f"{s['name']} ({seen[s['name']]})"
     return {"streams": streams}
+
+#----- Stream a "solicitar contenido" click from the Stremio player back into
+# the request pipeline (same webhook that the public /requests page uses).
+@router.get("/{token}/request-stream/{media_id}")
+async def request_stream(
+    token: str,
+    media_id: str,
+    request: Request,
+):
+    token_data = await db.get_api_token(token)
+    if not token_data:
+        return JSONResponse({"error": "invalid token"}, status_code=404)
+    base = SettingsManager.current().base_url
+    referer = request.headers.get("referer") or base
+    try:
+        from Backend.helper.request_notifier import queue_stream_request
+        await queue_stream_request(media_id, token_data, referer)
+        return RedirectResponse(
+            url=f"{base}/requests?requested={quote(media_id)}",
+            status_code=303,
+        )
+    except Exception as e:
+        LOGGER.error(f"stream request failed for {media_id}: {e}")
+        return JSONResponse({"error": "no se pudo solicitar el contenido"}, status_code=500)
+
 
 #----- Configure/install landing page rendered as HTML for a token
 @router.get("/{token}/configure")
