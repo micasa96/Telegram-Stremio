@@ -1148,7 +1148,9 @@ async def get_streams(
         # action. The imdb_id is stable and identifies the title across seasons.
         # NOTE: Stremio follows `url` as a video fetch, so we point it at a tiny
         # HTML redirect page that fires the request POST and then refreshes to /requests.
-        _uid = imdb_id or id
+        # Use the FULL Stremio id (imdb_id:season:episode) so the webhook payload
+        # carries the exact season/episode the user selected.
+        _uid = id  # NOT imdb_id — that drops season/episode for series
         _redirect_url = f"{SettingsManager.current().base_url}/stremio/{token}/request-stream/{quote(str(_uid))}?from=stremio"
         return {
             "streams": [
