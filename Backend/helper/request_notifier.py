@@ -143,10 +143,18 @@ async def queue_stream_request(media_id: str, token_data: dict | None, referer: 
         # Fallback: try a name search on the imdb id itself
         hits = await _rm._cinemeta_name_search(imdb_id)
     hit = hits[0] if hits else None
+    # Force media_type=tv when a season/episode was parsed — Cinemeta may return
+    # a false-positive "movie" hit first (e.g. tt0944947 Rick & Morty). The presence
+    # of season_num/episode_num definitively means it's a TV episode.
+    if season_num:
+        hit = next((h for h in hits if h.get("media_type") == "tv"), hit or {})
+        forced_type = "tv"
+    else:
+        forced_type = None
     # Only send season_numbers when a specific season was requested (Serie/Temporada/Episodio)
     seasons = [season_num] if season_num else []
     result = await _rm.submit_request(
-        media_type=(hit["media_type"] if hit else "movie"),
+        media_type=(forced_type or (hit["media_type"] if hit else "movie")),
         tmdb_id=(hit["tmdb_id"] if hit else None),
         imdb_id=imdb_id,
         title=(hit["title"] if hit else imdb_id),
