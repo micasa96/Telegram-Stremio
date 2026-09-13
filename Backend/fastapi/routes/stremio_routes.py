@@ -451,17 +451,6 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                 "extraSupported": ["genre", "skip"]
             },
             {
-                "type": "movie",
-                "id": "top_movies",
-                "name": "Popular",
-                "extra": [
-                    {"name": "genre", "isRequired": False, "options": GENRES},
-                    {"name": "skip"},
-                    {"name": "search", "isRequired": False}
-                ],
-                "extraSupported": ["genre", "skip", "search"]
-            },
-            {
                 "type": "series",
                 "id": "latest_series",
                 "name": "Latest",
@@ -470,17 +459,6 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                     {"name": "skip"}
                 ],
                 "extraSupported": ["genre", "skip"]
-            },
-            {
-                "type": "series",
-                "id": "top_series",
-                "name": "Popular",
-                "extra": [
-                    {"name": "genre", "isRequired": False, "options": GENRES},
-                    {"name": "skip"},
-                    {"name": "search", "isRequired": False}
-                ],
-                "extraSupported": ["genre", "skip", "search"]
             }
         ]
 
