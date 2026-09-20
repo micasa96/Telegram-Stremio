@@ -1090,6 +1090,22 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         </div>
     </div>
 
+    <!-- ── External Manifest URL (proxy catalogs/meta/streams from another addon) ───────────────────────── -->
+    <div class="settings-card">
+        <h2><i class="fa-solid fa-cube"></i> External Addon Proxy</h2>
+        <p style="margin:0;color:var(--text-secondary);font-size:0.85rem">
+            If your server has no local streams/meta for a title, fall back to another Stremio addon.
+            Paste that addon's <code>manifest.json</code> URL below. Its catalogs, meta, and streams
+            will be merged into this addon's manifest on top of your local content.
+        </p>
+        <label class="s-label" for="external_manifest_url" style="margin-top:1rem">Manifest URL</label>
+        <div class="multi-item" style="margin-top:0.25rem">
+            <input type="url" id="external_manifest_url" class="s-input"
+                value="{{ settings.external_manifest_url or '' }}"
+                placeholder="https://external-addon.example.com/manifest.json">
+        </div>
+    </div>
+
 
     <!-- ── Skip Channel (metadata failures) ────────────────────────────── -->
     <div class="settings-card">
@@ -1722,6 +1738,7 @@ async function saveSettings() {
         request_notify_thread:        (document.getElementById('request_notify_thread').value || '').trim(),
         external_api_url:             (document.getElementById('external_api_url').value || '').trim(),
         external_api_token:           (document.getElementById('external_api_token').value || '').trim(),
+        external_manifest_url:        (document.getElementById('external_manifest_url').value || '').trim(),
         delete_on_metadata_fail:       document.getElementById('delete_on_metadata_fail').checked,
     };
 
