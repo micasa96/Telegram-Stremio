@@ -38,13 +38,25 @@ async def get_external_meta(manifest_url, media_id):
     return None
 
 async def get_external_streams(manifest_url, media_id):
-    """Proxy de streams desde addon externo (no cacheado — siempre fresh)."""
+    """Proxy de streams desde addon externo (no cacheado — siempre fresh).
+    Unwraps 'behaviorHints.notWebReady': true que muchos addons ponen por defecto
+    para bloquear la reproducción directa en Stremio. Quitarlo permite que el
+    URL de redirección (ej: /resolve?token=...) funcione como stream directo.
+    """
     try:
         base = manifest_url.replace("/manifest.json", "")
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/stream/{media_id}", timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    data = await resp.json()
+                    streams = data.get("streams") or []
+                    for s in streams:
+                        # Quitar notWebReady para permitir playback directo
+                        bh = s.get("behaviorHints") or {}
+                        if bh.get("notWebReady"):
+                            bh.pop("notWebReady", None)
+                            s["behaviorHints"] = bh
+                    return {"streams": streams}
     except Exception as e:
         LOGGER.error(f"External stream fetch error: {media_id} -> {e}")
     return None
