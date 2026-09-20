@@ -17,6 +17,7 @@ from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
 from Backend.fastapi.security.tokens import verify_token
 from Backend.fastapi.themes import DEFAULT_THEME, get_theme
+from Backend.helper.external_manifest_proxy import get_external_manifest, get_external_meta, get_external_streams
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
@@ -531,6 +532,24 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
             pass
 
 
+        catalogs = catalogs or []
+        #----- External addon proxy: merge external manifest catalogs if configured
+        try:
+            ext_url = SettingsManager.current().external_manifest_url
+            if ext_url:
+                ext_manifest = await get_external_manifest(ext_url)
+                if ext_manifest and ext_manifest.get("catalogs"):
+                    for cat in ext_manifest["catalogs"]:
+                        if cat not in catalogs:
+                            catalogs.append(cat)
+                    # Merge resources if external supports more
+                    for res in ext_manifest.get("resources", []):
+                        if res not in resources:
+                            resources.append(res)
+        except Exception:
+            pass
+
+
     addon_name = ADDON_NAME
     addon_desc = "Streams movies and series from your Telegram."
     addon_version = ADDON_VERSION
@@ -762,6 +781,15 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
         meta_obj["videos"] = videos
         if not videos:
             LOGGER.warning(f"[META] series {id} has no episode entries in DB")
+
+    #----- External addon proxy: fallback metadata if local DB has nothing
+    if not media and SettingsManager.current().external_manifest_url:
+        ext_meta = await get_external_meta(
+            SettingsManager.current().external_manifest_url, id
+        )
+        if ext_meta and ext_meta.get("meta"):
+            return ext_meta
+
     return {"meta": meta_obj}
 
 
@@ -1142,6 +1170,13 @@ async def get_streams(
         filtered = [s for s in streams if stream_res_label(s.get("name", "")) in quality_filter]
         if filtered:
             streams = filtered
+
+    if not streams and SettingsManager.current().external_manifest_url:
+        ext_streams = await get_external_streams(
+            SettingsManager.current().external_manifest_url, id
+        )
+        if ext_streams and ext_streams.get("streams"):
+            streams = ext_streams["streams"]
 
     if not streams:
         # No streams available — offer the user a one-click "request this title"

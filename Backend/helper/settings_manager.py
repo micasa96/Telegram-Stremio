@@ -64,6 +64,7 @@ _DEFAULTS: Dict[str, Any] = {
     #----- External request API (e.g. n8n webhook): POST a new request there
     "external_api_url": "",
     "external_api_token": "",
+    "external_manifest_url": "",
 }
 
 
@@ -319,6 +320,10 @@ class Settings:
     @property
     def external_api_token(self) -> str:
         return str(self._d.get("external_api_token") or "").strip()
+
+    @property
+    def external_manifest_url(self) -> str:
+        return str(self._d.get("external_manifest_url") or "").strip()
 
     #----- Serialisation
     def to_dict(self) -> Dict[str, Any]:
