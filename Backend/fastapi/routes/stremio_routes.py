@@ -17,7 +17,12 @@ from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
 from Backend.fastapi.security.tokens import verify_token
 from Backend.fastapi.themes import DEFAULT_THEME, get_theme
-from Backend.helper.external_manifest_proxy import get_external_manifest, get_external_meta, get_external_streams
+from Backend.helper.external_manifest_proxy import (
+    get_external_manifest,
+    get_external_meta,
+    get_external_streams,
+    get_external_catalog,
+)
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
@@ -35,6 +40,9 @@ templates = Jinja2Templates(directory="Backend/fastapi/templates")
 ADDON_NAME = "Telegram"
 ADDON_VERSION = __version__
 PAGE_SIZE = 15
+
+#----- Catalog ids served by our own DB — anything else can be proxied to the external addon
+LOCAL_CATALOG_IDS = {"latest_movies", "top_movies", "latest_series", "top_series"}
 
 
 #----- Wrap a direct stream URL with the configured proxy (plain prepend or MediaFlow)
@@ -610,6 +618,14 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
     if media_type not in ["movie", "series"]:
         raise HTTPException(status_code=404, detail="Invalid catalog type")
 
+    #----- External addon proxy: serve catalogs that came from the external manifest
+    if not id.startswith("custom_") and id not in LOCAL_CATALOG_IDS:
+        ext_url = SettingsManager.current().external_manifest_url
+        if ext_url:
+            ext_catalog = await get_external_catalog(ext_url, media_type, id, extra)
+            if ext_catalog is not None:
+                return ext_catalog
+
     genre_filter = None
     search_query = None
     stremio_skip = 0
@@ -689,6 +705,13 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
 
     media = await db.get_media_details(imdb_id=imdb_id, kitsu_id=kitsu_id)
     if not media:
+        #----- External addon proxy: serve meta for titles not in our DB so the
+        #----- external catalog items look and open like normal indexed content.
+        ext_url = SettingsManager.current().external_manifest_url
+        if ext_url:
+            ext_meta = await get_external_meta(ext_url, media_type, id)
+            if ext_meta and ext_meta.get("meta"):
+                return ext_meta
         return {"meta": {}}
 
     if not _token_can_view(media.get("visibility") or "public", media.get("allowed_tokens") or [], token_data):
@@ -783,13 +806,6 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
             LOGGER.warning(f"[META] series {id} has no episode entries in DB")
 
     #----- External addon proxy: fallback metadata if local DB has nothing
-    if not media and SettingsManager.current().external_manifest_url:
-        ext_meta = await get_external_meta(
-            SettingsManager.current().external_manifest_url, id
-        )
-        if ext_meta and ext_meta.get("meta"):
-            return ext_meta
-
     return {"meta": meta_obj}
 
 
@@ -1172,11 +1188,29 @@ async def get_streams(
             streams = filtered
 
     if not streams and SettingsManager.current().external_manifest_url:
+        #----- Fallback to the external addon: instead of telling the user "Solicitar
+        #----- contenido", we surface the external stream as if it were ours. Each URL
+        #----- is wrapped in our /ext-play endpoint so that pressing play fires the
+        #----- download webhook in the background, then redirects to the real source.
         ext_streams = await get_external_streams(
-            SettingsManager.current().external_manifest_url, id
+            SettingsManager.current().external_manifest_url, media_type, id
         )
-        if ext_streams and ext_streams.get("streams"):
-            streams = ext_streams["streams"]
+        ext_base = SettingsManager.current().base_url
+        for s in (ext_streams or {}).get("streams") or []:
+            raw_url = s.get("url")
+            if not raw_url:
+                continue  # torrent/yt/externalUrl entries can't be proxied cleanly
+            s["url"] = (
+                f"{ext_base}/stremio/{token}/ext-play/{quote(str(id), safe='')}"
+                f"?u={quote(str(raw_url), safe='')}"
+            )
+            bh = s.get("behaviorHints")
+            if isinstance(bh, dict):
+                bh.pop("notWebReady", None)
+                if not bh:
+                    s.pop("behaviorHints", None)
+            s.setdefault("name", "Auto")
+            streams.append(s)
 
     if not streams:
         # No streams available — offer the user a one-click "request this title"
@@ -1218,6 +1252,65 @@ async def get_streams(
             seen[s["name"]] = seen.get(s["name"], 0) + 1
             s["name"] = f"{s['name']} ({seen[s['name']]})"
     return {"streams": streams}
+
+#----- External playback: keep it invisible to the user. Pressing play hits this
+# endpoint, which fires the same download webhook used by /requests in the
+# background and immediately 302-redirects to the real external source so the
+# player streams it directly (no proxying, no "external" labelling).
+_ext_fired: dict = {}
+_EXT_FIRE_TTL = 3600
+_EXT_FIRE_MAX = 5000
+
+
+#----- True the first time we see a title (within TTL), so replays don't re-fetch.
+def _mark_external_fired(key: str) -> bool:
+    now = time.time()
+    if key in _ext_fired and (now - _ext_fired[key]) < _EXT_FIRE_TTL:
+        return False
+    if len(_ext_fired) >= _EXT_FIRE_MAX:
+        for k in [k for k, ts in _ext_fired.items() if (now - ts) >= _EXT_FIRE_TTL]:
+            _ext_fired.pop(k, None)
+    _ext_fired[key] = now
+    return True
+
+
+#----- Resolve the title (Cinemeta) and fire the external download webhook with
+# the exact same payload shape as the public requests pipeline.
+async def _notify_external_download(media_id: str) -> None:
+    from Backend.helper import requests_manager as _rm
+    from Backend.helper.external_api_notifier import notify_external_api
+    try:
+        parsed = _parse_stremio_id(media_id)
+        imdb_id = parsed.get("imdb_id") or ""
+        season = parsed.get("season_num")
+        episode = parsed.get("episode_num")
+        hits = await _rm._cinemeta_id_search(imdb_id) if imdb_id else []
+        if season is not None:
+            hit = next((h for h in hits if h.get("media_type") == "tv"), hits[0] if hits else None)
+        else:
+            hit = hits[0] if hits else None
+        notify_external_api({
+            "media_type": "tv" if season is not None else "movie",
+            "imdb_id": imdb_id,
+            "title": (hit.get("title") if hit else None) or imdb_id or media_id,
+            "season_numbers": [season] if season is not None else [],
+            "episode_num": episode or 0,
+        })
+    except Exception as e:
+        LOGGER.error(f"[EXTERNAL] download notify failed for {media_id}: {e}")
+
+
+@router.get("/{token}/ext-play/{media_id}")
+async def external_play(token: str, media_id: str, request: Request, u: str = None):
+    if not await db.get_api_token(token):
+        raise HTTPException(status_code=404, detail="Invalid token")
+    target = (u or "").strip()
+    if not target.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid target")
+    if _mark_external_fired(media_id):
+        asyncio.create_task(_notify_external_download(media_id))
+    return RedirectResponse(url=target, status_code=302)
+
 
 #----- Stream a "solicitar contenido" click from the Stremio player back into
 # the request pipeline (same webhook that the public /requests page uses).
