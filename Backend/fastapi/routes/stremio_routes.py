@@ -7,7 +7,7 @@ from urllib.parse import quote, unquote
 
 import PTN
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import UserNotParticipant
@@ -16,13 +16,8 @@ from Backend import __version__, db
 from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
 from Backend.fastapi.security.tokens import verify_token
+from Backend.helper.cf_stream import cf_enabled, cf_stream_url, cf_stream_urls_all
 from Backend.fastapi.themes import DEFAULT_THEME, get_theme
-from Backend.helper.external_manifest_proxy import (
-    get_external_manifest,
-    get_external_meta,
-    get_external_streams,
-    get_external_catalog,
-)
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
@@ -34,15 +29,19 @@ from Backend.logger import LOGGER
 from Backend.pyrofork.bot import StreamBot, get_streambot_url
 
 router = APIRouter(prefix="/stremio", tags=["Stremio Addon"])
+
+#----- Dedupe cache for the "Solicitar contenido" stream prompt:
+# Android TV retries the stream GET every ~15s during playback failure, which
+# would fire the n8n webhook + Telegram msg repeatedly. Cache (token, media_id)
+# for 120s to ensure only ONE request/notification per Stremio stream-click.
+_request_stream_cache: dict[tuple, float] = {}
+_REQUEST_STREAM_TTL = 120  # seconds
 templates = Jinja2Templates(directory="Backend/fastapi/templates")
 
 #----- Addon configuration
 ADDON_NAME = "Telegram"
 ADDON_VERSION = __version__
 PAGE_SIZE = 15
-
-#----- Catalog ids served by our own DB — anything else can be proxied to the external addon
-LOCAL_CATALOG_IDS = {"latest_movies", "top_movies", "latest_series", "top_series"}
 
 
 #----- Wrap a direct stream URL with the configured proxy (plain prepend or MediaFlow)
@@ -453,17 +452,6 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                 "extraSupported": ["genre", "skip"]
             },
             {
-                "type": "movie",
-                "id": "top_movies",
-                "name": "Popular",
-                "extra": [
-                    {"name": "genre", "isRequired": False, "options": GENRES},
-                    {"name": "skip"},
-                    {"name": "search", "isRequired": False}
-                ],
-                "extraSupported": ["genre", "skip", "search"]
-            },
-            {
                 "type": "series",
                 "id": "latest_series",
                 "name": "Latest",
@@ -472,17 +460,6 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                     {"name": "skip"}
                 ],
                 "extraSupported": ["genre", "skip"]
-            },
-            {
-                "type": "series",
-                "id": "top_series",
-                "name": "Popular",
-                "extra": [
-                    {"name": "genre", "isRequired": False, "options": GENRES},
-                    {"name": "skip"},
-                    {"name": "search", "isRequired": False}
-                ],
-                "extraSupported": ["genre", "skip", "search"]
             }
         ]
 
@@ -536,24 +513,6 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                     c for c in catalogs
                     if c.get("id") not in hidden and f"{c.get('id')}::{c.get('type')}" not in hidden
                 ]
-        except Exception:
-            pass
-
-
-        catalogs = catalogs or []
-        #----- External addon proxy: merge external manifest catalogs if configured
-        try:
-            ext_url = SettingsManager.current().external_manifest_url
-            if ext_url:
-                ext_manifest = await get_external_manifest(ext_url)
-                if ext_manifest and ext_manifest.get("catalogs"):
-                    for cat in ext_manifest["catalogs"]:
-                        if cat not in catalogs:
-                            catalogs.append(cat)
-                    # Merge resources if external supports more
-                    for res in ext_manifest.get("resources", []):
-                        if res not in resources:
-                            resources.append(res)
         except Exception:
             pass
 
@@ -617,14 +576,6 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
 
     if media_type not in ["movie", "series"]:
         raise HTTPException(status_code=404, detail="Invalid catalog type")
-
-    #----- External addon proxy: serve catalogs that came from the external manifest
-    if not id.startswith("custom_") and id not in LOCAL_CATALOG_IDS:
-        ext_url = SettingsManager.current().external_manifest_url
-        if ext_url:
-            ext_catalog = await get_external_catalog(ext_url, media_type, id, extra)
-            if ext_catalog is not None:
-                return ext_catalog
 
     genre_filter = None
     search_query = None
@@ -705,13 +656,6 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
 
     media = await db.get_media_details(imdb_id=imdb_id, kitsu_id=kitsu_id)
     if not media:
-        #----- External addon proxy: serve meta for titles not in our DB so the
-        #----- external catalog items look and open like normal indexed content.
-        ext_url = SettingsManager.current().external_manifest_url
-        if ext_url:
-            ext_meta = await get_external_meta(ext_url, media_type, id)
-            if ext_meta and ext_meta.get("meta"):
-                return ext_meta
         return {"meta": {}}
 
     if not _token_can_view(media.get("visibility") or "public", media.get("allowed_tokens") or [], token_data):
@@ -804,8 +748,6 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
         meta_obj["videos"] = videos
         if not videos:
             LOGGER.warning(f"[META] series {id} has no episode entries in DB")
-
-    #----- External addon proxy: fallback metadata if local DB has nothing
     return {"meta": meta_obj}
 
 
@@ -879,7 +821,38 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
         # Use a neutral slug in the download URL instead of the raw caption.
         url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r.get('quality') or 'video')}"
         size_bytes = parse_size_to_bytes(r.get("size", ""))
-        streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
+        if cf_enabled():
+            settings = SettingsManager.current()
+            cf_only = settings.cf_stream_mode == "cloudflare"
+            
+            # Check if we should show all workers
+            if settings.show_all_workers:
+                # Add stream for each worker
+                all_worker_urls = cf_stream_urls_all(token, r['token'], quote(r['title']))
+                for worker_info in all_worker_urls:
+                    worker_name = f"{stream_name} ({worker_info['worker_name']})"
+                    streams.append({
+                        "name": worker_name if cf_only else f"{worker_name}",
+                        "title": stream_title,
+                        "url": worker_info['url'],
+                        "size_bytes": size_bytes
+                    })
+            else:
+                # Single auto-balanced worker URL
+                cf_url = cf_stream_url(token, r['token'], quote(r['title']))
+                if cf_url:
+                    streams.append({
+                        "name": stream_name if cf_only else f"{stream_name} (Cloudflare)",
+                        "title": stream_title,
+                        "url": cf_url,
+                        "size_bytes": size_bytes
+                    })
+            
+            # Add direct URL if not cloudflare-only
+            if not cf_only:
+                streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
+        else:
+            streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
     return streams
 
 
@@ -1151,14 +1124,56 @@ async def get_streams(
 
                 original_url = f"{SettingsManager.current().base_url}/dl/{token}/{quality.get('id')}/video.mkv"
                 proxy_url = build_proxy_url(original_url)
-
-                if SettingsManager.current().show_proxy_and_non_proxy_both and proxy_url:
-                    streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                    streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                elif proxy_url:
-                    streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                settings = SettingsManager.current()
+                
+                # Cloudflare Worker streaming with multi-worker support
+                if cf_enabled():
+                    cf_only = settings.cf_stream_mode == "cloudflare"
+                    
+                    # Show all workers or auto-balance
+                    if settings.show_all_workers:
+                        all_worker_urls = cf_stream_urls_all(token, quality.get('id'), "video.mkv")
+                        for worker_info in all_worker_urls:
+                            worker_stream_name = f"{stream_name} ({worker_info['worker_name']})" if not cf_only else f"{stream_name} ({worker_info['worker_name']})"
+                            streams.append({
+                                "name": worker_stream_name,
+                                "title": stream_title,
+                                "url": worker_info['url'],
+                                "size_bytes": size_bytes,
+                                "episode_start": episode_start,
+                                "name_key": name_key
+                            })
+                    else:
+                        # Single auto-balanced URL
+                        cf_url = cf_stream_url(token, quality.get('id'), "video.mkv")
+                        if cf_url:
+                            streams.append({
+                                "name": stream_name if cf_only else f"{stream_name} (Cloudflare)",
+                                "title": stream_title,
+                                "url": cf_url,
+                                "size_bytes": size_bytes,
+                                "episode_start": episode_start,
+                                "name_key": name_key
+                            })
+                    
+                    # Add direct/proxy URLs if not cloudflare-only
+                    if not cf_only:
+                        if settings.show_proxy_and_non_proxy_both and proxy_url:
+                            streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                            streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                        elif proxy_url:
+                            streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                        else:
+                            streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
                 else:
-                    streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    # No Cloudflare: use proxy or direct
+                    if settings.show_proxy_and_non_proxy_both and proxy_url:
+                        streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                        streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    elif proxy_url:
+                        streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    else:
+                        streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
     elif is_global_search_enabled():
         try:
             is_anime = bool(is_kitsu or (media_details and media_details.get("is_anime")))
@@ -1187,31 +1202,6 @@ async def get_streams(
         if filtered:
             streams = filtered
 
-    if not streams and SettingsManager.current().external_manifest_url:
-        #----- Fallback to the external addon: instead of telling the user "Solicitar
-        #----- contenido", we surface the external stream as if it were ours. Each URL
-        #----- is wrapped in our /ext-play endpoint so that pressing play fires the
-        #----- download webhook in the background, then redirects to the real source.
-        ext_streams = await get_external_streams(
-            SettingsManager.current().external_manifest_url, media_type, id
-        )
-        ext_base = SettingsManager.current().base_url
-        for s in (ext_streams or {}).get("streams") or []:
-            raw_url = s.get("url")
-            if not raw_url:
-                continue  # torrent/yt/externalUrl entries can't be proxied cleanly
-            s["url"] = (
-                f"{ext_base}/stremio/{token}/ext-play/{quote(str(id), safe='')}"
-                f"?u={quote(str(raw_url), safe='')}"
-            )
-            bh = s.get("behaviorHints")
-            if isinstance(bh, dict):
-                bh.pop("notWebReady", None)
-                if not bh:
-                    s.pop("behaviorHints", None)
-            s.setdefault("name", "Auto")
-            streams.append(s)
-
     if not streams:
         # No streams available — offer the user a one-click "request this title"
         # action. The imdb_id is stable and identifies the title across seasons.
@@ -1220,7 +1210,7 @@ async def get_streams(
         # Use the FULL Stremio id (imdb_id:season:episode) so the webhook payload
         # carries the exact season/episode the user selected.
         _uid = id  # NOT imdb_id — that drops season/episode for series
-        _redirect_url = f"{SettingsManager.current().base_url}/stremio/{token}/request-stream/{quote(str(_uid))}?from=stremio"
+        _redirect_url = f"{SettingsManager.current().base_url}/stremio/{token}/request-stream/{str(_uid)}?from=stremio"
         return {
             "streams": [
                 {
@@ -1253,71 +1243,11 @@ async def get_streams(
             s["name"] = f"{s['name']} ({seen[s['name']]})"
     return {"streams": streams}
 
-#----- External playback: keep it invisible to the user. Pressing play hits this
-# endpoint, which fires the same download webhook used by /requests in the
-# background and immediately 302-redirects to the real external source so the
-# player streams it directly (no proxying, no "external" labelling).
-_ext_fired: dict = {}
-_EXT_FIRE_TTL = 3600
-_EXT_FIRE_MAX = 5000
-
-
-#----- True the first time we see a title (within TTL), so replays don't re-fetch.
-def _mark_external_fired(key: str) -> bool:
-    now = time.time()
-    if key in _ext_fired and (now - _ext_fired[key]) < _EXT_FIRE_TTL:
-        return False
-    if len(_ext_fired) >= _EXT_FIRE_MAX:
-        for k in [k for k, ts in _ext_fired.items() if (now - ts) >= _EXT_FIRE_TTL]:
-            _ext_fired.pop(k, None)
-    _ext_fired[key] = now
-    return True
-
-
-#----- Resolve the title (Cinemeta) and fire the external download webhook with
-# the exact same payload shape as the public requests pipeline.
-async def _notify_external_download(media_id: str) -> None:
-    from Backend.helper import requests_manager as _rm
-    from Backend.helper.external_api_notifier import notify_external_api
-    try:
-        parsed = _parse_stremio_id(media_id)
-        imdb_id = parsed.get("imdb_id") or ""
-        season = parsed.get("season_num")
-        episode = parsed.get("episode_num")
-        hits = await _rm._cinemeta_id_search(imdb_id) if imdb_id else []
-        if season is not None:
-            hit = next((h for h in hits if h.get("media_type") == "tv"), hits[0] if hits else None)
-        else:
-            hit = hits[0] if hits else None
-        notify_external_api({
-            "media_type": "tv" if season is not None else "movie",
-            "imdb_id": imdb_id,
-            "title": (hit.get("title") if hit else None) or imdb_id or media_id,
-            "season_numbers": [season] if season is not None else [],
-            "episode_num": episode or 0,
-        })
-    except Exception as e:
-        LOGGER.error(f"[EXTERNAL] download notify failed for {media_id}: {e}")
-
-
-@router.get("/{token}/ext-play/{media_id}")
-async def external_play(token: str, media_id: str, request: Request, u: str = None):
-    if not await db.get_api_token(token):
-        raise HTTPException(status_code=404, detail="Invalid token")
-    target = (u or "").strip()
-    if not target.lower().startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="Invalid target")
-    if _mark_external_fired(media_id):
-        asyncio.create_task(_notify_external_download(media_id))
-    return RedirectResponse(url=target, status_code=302)
-
-
 #----- Stream a "solicitar contenido" click from the Stremio player back into
 # the request pipeline (same webhook that the public /requests page uses).
 # Returns a tiny HTML page with a meta-refresh so Stremio (which follows the
 # stream `url`) does NOT attempt media playback — it loads this page, the JS
 # fires the request via queue_stream_request, then redirects to /requests.
-from fastapi.responses import HTMLResponse
 @router.get("/{token}/request-stream/{media_id}")
 async def request_stream(
     token: str,
@@ -1334,24 +1264,44 @@ async def request_stream(
         )
     base = SettingsManager.current().base_url
     referer = request.headers.get("referer") or base
+    #----- Endpoint-level dedupe: Android TV retries the stream GET every ~15s
+    # during playback failure. 120s TTL → only ONE webhook+telegram per click.
+    cache_key = (token, media_id)
+    now = time.monotonic()
+    if cache_key in _request_stream_cache and (now - _request_stream_cache[cache_key]) < _REQUEST_STREAM_TTL:
+        LOGGER.info(f"request_stream deduped (cached {now - _request_stream_cache[cache_key]:.1f}s ago): {media_id}")
+        return HTMLResponse(
+            "<html><head><meta http-equiv=\"refresh\" content=\"0;url=/requests?submitted=1\"></head>"
+            "<body><p>📩 Solicitando contenido…</p></body></html>",
+        )
+    _request_stream_cache[cache_key] = now  # record this fire
+
     try:
         from Backend.helper.request_notifier import queue_stream_request
-        result = await queue_stream_request(media_id, token_data, referer)
-        # Return HTML page: JS calls the webhook, then meta-refresh to /requests
-        html = f"""<html><head><meta http-equiv="refresh" content="0;url=/requests?submitted=1">
-        <script>
-        fetch('/stremio/{token}/_fire-request/{quote(media_id)}')
-          .then(r => r.json())
-          .then(d => console.log('request', d))
-          .catch(e => console.error(e));
-        </script>
-        </head><body><p>📩 Solicitando contenido…</p></body></html>"""
+        await queue_stream_request(media_id, token_data, referer)
+        # Return HTML page: server-side POST already fired above. Stremio's
+        # WebView follows the stream `url` and tries to render it as media;
+        # the JS fetch fires a companion call to _fire-request to ensure the
+        # webhook POST completes server-side. meta-refresh then redirects to /requests.
+        html = (
+            '<html><head>\n'
+            '<meta http-equiv="refresh" content="0;url=/requests?submitted=1">\n'
+            '<script>\n'
+            f'fetch("/stremio/{token}/_fire-request/{media_id}")\\n'
+            '  .then(r => r.json())\n'
+            '  .then(d => console.log("request", d))\n'
+            '  .catch(e => console.error(e));\n'
+            '</script>\n'
+            '</head><body><p>📩 Solicitando contenido…</p></body></html>'
+        )
         return HTMLResponse(html)
     except Exception as e:
         LOGGER.error(f"stream request failed for {media_id}: {e}")
-        return HTMLResponse("<html><body><p>❌ No se pudo solicitar el contenido.</p>"
-                             "<script>window.location='/requests'</script></body></html>",
-                             status_code=500)
+        return HTMLResponse(
+            "<html><body><p>❌ No se pudo solicitar el contenido.</p>"
+            "<script>window.location='/requests'</script></body></html>",
+            status_code=500,
+        )
 
 # Companion endpoint: the JS in the HTML above calls this to trigger the POST,
 # keeping the request pipeline call server-side (no CORS issues from Stremio's view).

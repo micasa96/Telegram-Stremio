@@ -1090,22 +1090,6 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         </div>
     </div>
 
-    <!-- ── External Manifest URL (proxy catalogs/meta/streams from another addon) ───────────────────────── -->
-    <div class="settings-card">
-        <h2><i class="fa-solid fa-cube"></i> External Addon Proxy</h2>
-        <p style="margin:0;color:var(--text-secondary);font-size:0.85rem">
-            If your server has no local streams/meta for a title, fall back to another Stremio addon.
-            Paste that addon's <code>manifest.json</code> URL below. Its catalogs, meta, and streams
-            will be merged into this addon's manifest on top of your local content.
-        </p>
-        <label class="s-label" for="external_manifest_url" style="margin-top:1rem">Manifest URL</label>
-        <div class="multi-item" style="margin-top:0.25rem">
-            <input type="url" id="external_manifest_url" class="s-input"
-                value="{{ settings.external_manifest_url or '' }}"
-                placeholder="https://external-addon.example.com/manifest.json">
-        </div>
-    </div>
-
 
     <!-- ── Skip Channel (metadata failures) ────────────────────────────── -->
     <div class="settings-card">
@@ -1199,6 +1183,103 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         </label>
     </div>
 
+
+    <!-- ── Cloudflare Streaming ────────────────────────────────────────── -->
+    <div class="settings-card">
+        <h2><i class="fa-brands fa-cloudflare"></i> Cloudflare Streaming</h2>
+        <p style="font-size:0.8rem;color:var(--text-sec);margin:-0.25rem 0 1rem">
+            Stream video from Cloudflare streaming Workers instead of this server. Catalogs, tokens and
+            limits stay here; the Workers report each token's usage back. Configure multiple workers for load balancing and redundancy.
+        </p>
+        <a href="https://proxy.weebzonex.workers.dev" target="_blank" rel="noopener" class="add-btn" style="display:inline-flex;align-items:center;gap:.5rem;margin-bottom:1rem;text-decoration:none">
+            <i class="fa-solid fa-bolt"></i> Get Cloudflare streaming
+        </a>
+        <p style="font-size:0.75rem;color:var(--text-sec);margin:-0.5rem 0 1rem">
+            Recommended on free hosts (Koyeb, Render, orkestr): video then streams fast from Cloudflare instead of a slow, sleeping free server.
+            After buying, you get the Worker URL and secret on Telegram.
+        </p>
+        
+        <!-- Legacy Single Worker (backward compatibility) -->
+        <div style="margin-bottom:1.5rem;padding:1rem;background:color-mix(in srgb,var(--text-sec) 8%,transparent);border-radius:0.5rem">
+            <h3 style="font-size:0.9rem;margin-bottom:0.75rem;color:var(--text-pri)">
+                <i class="fa-solid fa-server"></i> Single Worker (Legacy)
+            </h3>
+            <div style="margin-bottom:1rem">
+                <label class="s-label" for="cf_stream_url">Worker URL</label>
+                <input type="url" id="cf_stream_url" class="s-input"
+                    value="{{ settings.cf_stream_url }}"
+                    placeholder="https://telestream.your-name.workers.dev">
+            </div>
+            <div style="margin-bottom:1rem">
+                <label class="s-label" for="cf_stream_secret">Shared Secret</label>
+                <input type="password" id="cf_stream_secret" class="s-input"
+                    value="{{ settings.cf_stream_secret }}"
+                    placeholder="The secret that came with your Worker URL"
+                    autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+
+        <!-- Multiple Workers -->
+        <div style="margin-bottom:1.5rem">
+            <h3 style="font-size:0.9rem;margin-bottom:0.75rem;color:var(--text-pri);display:flex;align-items:center;gap:0.5rem">
+                <i class="fa-solid fa-layer-group"></i> Multiple Workers
+                <span style="font-size:0.75rem;font-weight:400;color:var(--text-sec)">(Recommended for high traffic)</span>
+            </h3>
+            <div id="cf-workers-list" style="margin-bottom:1rem">
+                <!-- Populated by JavaScript -->
+            </div>
+            <button type="button" onclick="addCFWorker()" class="add-btn">
+                <i class="fa-solid fa-plus"></i> Add Worker
+            </button>
+        </div>
+
+        <!-- Streaming Mode -->
+        <div style="margin-bottom:1rem">
+            <label class="s-label" for="cf_stream_mode">Stremio Links</label>
+            <select id="cf_stream_mode" class="s-input">
+                <option value="off" {% if settings.cf_stream_mode == "off" %}selected{% endif %}>Off — stream from this server</option>
+                <option value="cloudflare" {% if settings.cf_stream_mode == "cloudflare" %}selected{% endif %}>Cloudflare only</option>
+                <option value="both" {% if settings.cf_stream_mode == "both" %}selected{% endif %}>Both — Cloudflare and direct</option>
+            </select>
+        </div>
+
+        <!-- Load Balancing Strategy -->
+        <div style="margin-bottom:1rem">
+            <label class="s-label" for="cf_load_strategy">Load Balancing Strategy</label>
+            <select id="cf_load_strategy" class="s-input">
+                <option value="round-robin" {% if settings.cf_load_strategy == "round-robin" %}selected{% endif %}>Round Robin (Recommended)</option>
+                <option value="least-loaded" {% if settings.cf_load_strategy == "least-loaded" %}selected{% endif %}>Least Loaded</option>
+                <option value="random" {% if settings.cf_load_strategy == "random" %}selected{% endif %}>Random</option>
+            </select>
+            <p style="font-size:0.75rem;color:var(--text-sec);margin-top:0.25rem">
+                <strong>Round Robin:</strong> Distributes streams evenly. <strong>Least Loaded:</strong> Sends to worker with fewest streams. <strong>Random:</strong> Randomly selects workers.
+            </p>
+        </div>
+
+        <!-- Show All Workers Option -->
+        <div style="margin-bottom:1rem">
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                <input type="checkbox" id="show_all_workers" {% if settings.show_all_workers %}checked{% endif %}>
+                <span class="s-label" style="margin:0">Show separate stream for each worker</span>
+            </label>
+            <p style="font-size:0.75rem;color:var(--text-sec);margin-top:0.25rem">
+                When enabled, users will see all workers as separate stream options in Stremio. Otherwise, one auto-balanced stream is shown.
+            </p>
+        </div>
+
+        <!-- Worker Statistics -->
+        <div id="cf-worker-stats" style="margin-top:1.5rem;padding:1rem;background:color-mix(in srgb,var(--text-sec) 5%,transparent);border-radius:0.5rem;display:none">
+            <h3 style="font-size:0.85rem;margin-bottom:0.75rem;color:var(--text-pri)">
+                <i class="fa-solid fa-chart-line"></i> Worker Statistics
+            </h3>
+            <div id="cf-stats-content">
+                <!-- Populated by JavaScript -->
+            </div>
+            <button type="button" onclick="refreshCFStats()" class="add-btn" style="margin-top:0.75rem;font-size:0.8rem">
+                <i class="fa-solid fa-sync"></i> Refresh Stats
+            </button>
+        </div>
+    </div>
     
     <!-- ── WebDAV ──────────────────────────────────────────────────────── -->
     <div class="settings-card">
@@ -1631,6 +1712,120 @@ function collectList(listKey) {
         .filter(Boolean);
 }
 
+/* ── Cloudflare Workers Management ──────────────────────────────────────── */
+
+function collectCFWorkers() {
+    const workers = [];
+    const items = document.querySelectorAll('[data-cf-worker]');
+    items.forEach(item => {
+        const url = item.querySelector('[name=cf_worker_url]').value.trim();
+        const secret = item.querySelector('[name=cf_worker_secret]').value.trim();
+        if (url && secret) {
+            workers.push([url, secret]);
+        }
+    });
+    return workers;
+}
+
+function addCFWorker(url = '', secret = '', index = -1) {
+    const container = document.getElementById('cf-workers-list');
+    if (!container) return;
+    
+    const idx = index === -1 ? container.children.length : index;
+    
+    const div = document.createElement('div');
+    div.className = 'multi-item';
+    div.dataset.cfWorker = 'true';
+    div.style.marginBottom = '0.75rem';
+    
+    div.innerHTML = `
+        <div style="display:flex;gap:0.5rem;align-items:flex-end">
+            <div style="flex:1">
+                <label style="font-size:0.75rem;color:var(--text-sec)">Worker URL</label>
+                <input type="url" name="cf_worker_url" class="s-input"
+                    value="${url}" 
+                    placeholder="https://worker-name.workers.dev">
+            </div>
+            <div style="flex:1">
+                <label style="font-size:0.75rem;color:var(--text-sec)">Shared Secret</label>
+                <input type="password" name="cf_worker_secret" class="s-input"
+                    value="${secret}" 
+                    placeholder="Worker secret" autocomplete="off">
+            </div>
+            <button type="button" onclick="removeCFWorker(this)" 
+                style="margin-bottom:0.25rem;background:var(--red);color:white;border:none;border-radius:0.375rem;padding:0.5rem 0.75rem;cursor:pointer">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>
+    `;
+    
+    container.appendChild(div);
+    
+    // If this was an insert at a specific index, reorder
+    if (index !== -1) {
+        // Insert at the correct position
+        const items = Array.from(container.children);
+        if (idx < items.length - 1) {
+            container.insertBefore(items[items.length - 1], items[idx]);
+        }
+    }
+}
+
+function removeCFWorker(button) {
+    const item = button.closest('.multi-item');
+    if (item) item.remove();
+}
+
+async function refreshCFStats() {
+    const content = document.getElementById('cf-stats-content');
+    if (!content) return;
+    
+    const showBtn = document.getElementById('cf-worker-stats');
+    if (showBtn) showBtn.style.display = 'block';
+    
+    content.innerHTML = '<div style="text-align:center;padding:1rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    
+    try {
+        const res = await fetch('/api/cf/workers/stats');
+        const data = await res.json();
+        
+        if (!data.enabled) {
+            content.innerHTML = '<div style="color:var(--text-sec)">Cloudflare streaming is not enabled</div>';
+            return;
+        }
+        
+        let html = '<div style="overflow-x:auto">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:0.85rem">';
+        html += '<thead><tr><th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--border)">Worker</th><th style="text-align:right;padding:0.5rem;border-bottom:1px solid var(--border)">Streams</th><th style="text-align:right;padding:0.5rem;border-bottom:1px solid var(--border)">Avg ms</th><th style="text-align:center;padding:0.5rem;border-bottom:1px solid var(--border)">Status</th></tr></thead>';
+        html += '<tbody>';
+        
+        data.workers.forEach(w => {
+            const statusColor = w.is_healthy ? '#10b981' : '#ef4444';
+            const statusText = w.is_healthy ? 'Healthy' : 'Unhealthy';
+            html += `<tr>
+                <td style="padding:0.5rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:0.8rem">${w.url}</td>
+                <td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right">${w.total_streams}</td>
+                <td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right">${w.avg_response_time}</td>
+                <td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:center">
+                    <span style="color:${statusColor};font-weight:600">${statusText}</span>
+                </td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        html += `<p style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-sec)">
+            <i class="fa-solid fa-circle-check"></i> ${data.healthy_workers}/${data.total_workers} workers healthy
+            · Strategy: ${data.load_strategy}
+        </p>`;
+        html += '</div>';
+        
+        content.innerHTML = html;
+        
+    } catch (error) {
+        content.innerHTML = `<div style="color:var(--red)">Error loading stats: ${error.message}</div>`;
+    }
+}
+
 /* ── Save ──────────────────────────────────────────────────────────────── */
 
 function toggleWebdavPwdVisibility() {
@@ -1718,6 +1913,12 @@ async function saveSettings() {
         show_proxy_and_non_proxy_both: document.getElementById('show_proxy_and_non_proxy_both').checked,
         mediaflow_proxy:               document.getElementById('mediaflow_proxy').checked,
         mediaflow_password:            document.getElementById('mediaflow_password').value,
+        cf_stream_url:                 document.getElementById('cf_stream_url').value.trim(),
+        cf_stream_secret:              document.getElementById('cf_stream_secret').value.trim(),
+        cf_stream_mode:                document.getElementById('cf_stream_mode').value,
+        cf_workers:                    collectCFWorkers(),
+        cf_load_strategy:              document.getElementById('cf_load_strategy').value,
+        show_all_workers:              document.getElementById('show_all_workers').checked,
         webdav_user:                   document.getElementById('webdav_user').value.trim(),
         webdav_password:               document.getElementById('webdav_password').value,
         multi_tokens:                  collectList('multi_tokens'),
@@ -1738,7 +1939,6 @@ async function saveSettings() {
         request_notify_thread:        (document.getElementById('request_notify_thread').value || '').trim(),
         external_api_url:             (document.getElementById('external_api_url').value || '').trim(),
         external_api_token:           (document.getElementById('external_api_token').value || '').trim(),
-        external_manifest_url:        (document.getElementById('external_manifest_url').value || '').trim(),
         delete_on_metadata_fail:       document.getElementById('delete_on_metadata_fail').checked,
     };
 
@@ -1873,6 +2073,20 @@ function renderSettings(s) {
     document.getElementById('http_proxy_url').value = s.http_proxy_url || '';
     document.getElementById('mediaflow_proxy').checked = !!s.mediaflow_proxy;
     document.getElementById('mediaflow_password').value = s.mediaflow_password || '';
+    document.getElementById('cf_stream_url').value = s.cf_stream_url || '';
+    document.getElementById('cf_stream_secret').value = s.cf_stream_secret || '';
+    document.getElementById('cf_stream_mode').value = s.cf_stream_mode || 'off';
+    document.getElementById('cf_load_strategy').value = s.cf_load_strategy || 'round-robin';
+    document.getElementById('show_all_workers').checked = !!s.show_all_workers;
+    
+    // Load multiple workers
+    const savedWorkers = s.cf_workers || [];
+    if (savedWorkers.length > 0) {
+        savedWorkers.forEach((w, idx) => {
+            addCFWorker(w[0] || '', w[1] || '', idx);
+        });
+    }
+    
     const wu = document.getElementById('webdav_user');
     if (wu) wu.value = s.webdav_user || '';
     const wp = document.getElementById('webdav_password');

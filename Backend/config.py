@@ -41,7 +41,14 @@ class Telegram:
     SUBSCRIPTION_GROUP_ID         = _int_env("SUBSCRIPTION_GROUP_ID")
     APPROVER_IDS                  = [int(x.strip()) for x in (getenv("APPROVER_IDS") or "").split(",") if x.strip().isdigit()]
     HTTP_PROXY_URL                = getenv("HTTP_Proxy_URL", "")
+    HTTP_PROXY_URLS               = [url.strip() for url in (getenv("HTTP_PROXY_URLS") or "").split(",") if url.strip()]
     SHOW_PROXY_AND_NON_PROXY_BOTH = getenv("SHOW_ProxyAndNonProxyBoth", "false").lower() == "true"
+    
+    # Cloudflare Streaming Workers
+    CF_WORKERS                    = getenv("CF_WORKERS", "")
+    CF_LOAD_STRATEGY              = getenv("CF_LOAD_STRATEGY", "round-robin")
+    SHOW_ALL_WORKERS              = getenv("SHOW_ALL_WORKERS", "false").lower() == "true"
+    CF_STREAM_MODE                = getenv("CF_STREAM_MODE", "both")
 
     #----- WebDAV (optional env fallback; prefer Settings page)
     WEBDAV_USER     = getenv("WEBDAV_USER", "")

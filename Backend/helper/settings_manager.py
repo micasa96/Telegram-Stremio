@@ -28,6 +28,12 @@ _DEFAULTS: Dict[str, Any] = {
     "payment_instructions": "",
     "payment_qr_url": "",
     "http_proxy_url": "",
+    "cf_stream_url": "",
+    "cf_stream_secret": "",
+    "cf_stream_mode": "off",
+    "cf_workers": [],  # List of (url, secret) tuples for multi-worker support
+    "cf_load_strategy": "round-robin",  # "round-robin", "least-loaded", or "random"
+    "show_all_workers": False,  # Show separate stream for each worker
     "show_proxy_and_non_proxy_both": False,
     "mediaflow_proxy": False,
     "mediaflow_password": "",
@@ -64,7 +70,6 @@ _DEFAULTS: Dict[str, Any] = {
     #----- External request API (e.g. n8n webhook): POST a new request there
     "external_api_url": "",
     "external_api_token": "",
-    "external_manifest_url": "",
 }
 
 
@@ -92,6 +97,21 @@ def _seed_from_env() -> Dict[str, Any]:
         "multi_tokens":                 [],
         "extra_databases":              list(Telegram.DATABASE[2:]) if len(Telegram.DATABASE) > 2 else [],
     })
+    
+    # Seed multi-worker config from env if available
+    if hasattr(Telegram, 'CF_WORKERS') and Telegram.CF_WORKERS:
+        import json
+        try:
+            import ast
+            workers = ast.literal_eval(Telegram.CF_WORKERS)
+            if isinstance(workers, list) and workers:
+                seed["cf_workers"] = workers
+                seed["cf_load_strategy"] = Telegram.CF_LOAD_STRATEGY
+                seed["show_all_workers"] = Telegram.SHOW_ALL_WORKERS
+                seed["cf_stream_mode"] = Telegram.CF_STREAM_MODE
+        except Exception as e:
+            LOGGER.warning(f"Could not parse CF_WORKERS from env: {e}")
+    
     return seed
 
 
@@ -229,6 +249,50 @@ class Settings:
         return str(self._d.get("http_proxy_url") or "")
 
     @property
+    def cf_stream_url(self) -> str:
+        return str(self._d.get("cf_stream_url") or "").rstrip("/")
+
+    @property
+    def cf_stream_secret(self) -> str:
+        return str(self._d.get("cf_stream_secret") or "")
+
+    #----- "off", "cloudflare" (CF links only) or "both" (CF + direct links)
+    @property
+    def cf_stream_mode(self) -> str:
+        mode = str(self._d.get("cf_stream_mode") or "off")
+        return mode if mode in ("off", "cloudflare", "both") else "off"
+    
+    @property
+    def cf_workers(self) -> List[tuple]:
+        """
+        List of (url, secret) tuples for multi-worker configuration.
+        Format: [["https://worker1.example.com", "secret1"], ["https://worker2.example.com", "secret2"]]
+        """
+        workers = self._d.get("cf_workers") or []
+        if not isinstance(workers, list):
+            return []
+        
+        result = []
+        for item in workers:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                url = str(item[0]).strip().rstrip("/")
+                secret = str(item[1]).strip()
+                if url and secret:
+                    result.append((url, secret))
+        return result
+    
+    @property
+    def cf_load_strategy(self) -> str:
+        """Load balancing strategy for CF workers: round-robin, least-loaded, or random."""
+        strategy = str(self._d.get("cf_load_strategy") or "round-robin")
+        return strategy if strategy in ("round-robin", "least-loaded", "random") else "round-robin"
+    
+    @property
+    def show_all_workers(self) -> bool:
+        """Whether to show separate stream entries for each worker."""
+        return bool(self._d.get("show_all_workers", False))
+
+    @property
     def mediaflow_password(self) -> str:
         return str(self._d.get("mediaflow_password") or "")
 
@@ -321,10 +385,6 @@ class Settings:
     def external_api_token(self) -> str:
         return str(self._d.get("external_api_token") or "").strip()
 
-    @property
-    def external_manifest_url(self) -> str:
-        return str(self._d.get("external_manifest_url") or "").strip()
-
     #----- Serialisation
     def to_dict(self) -> Dict[str, Any]:
         return dict(self._d)
@@ -356,6 +416,18 @@ class SettingsManager:
             LOGGER.info("SettingsManager: generated and stored a new persistent session secret.")
 
         LOGGER.info("SettingsManager: settings loaded successfully.")
+
+        #----- Initialize Cloudflare Worker Manager if configured
+        try:
+            s = cls.current()
+            if s.cf_workers:
+                from Backend.helper.cf_stream import get_cf_manager
+                manager = get_cf_manager()
+                manager.initialize(s.cf_workers)
+                manager.set_strategy(s.cf_load_strategy)
+                LOGGER.info(f"[SettingsManager] Initialized {len(s.cf_workers)} CF workers")
+        except Exception as exc:
+            LOGGER.warning(f"[SettingsManager] CF worker initialization skipped: {exc}")
 
     #----- Reload settings from DB (call after an external change)
     @classmethod
@@ -481,6 +553,40 @@ class SettingsManager:
         proxy_keys = {"http_proxy_url", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "mediaflow_password"}
         if any(old.get(k) != new.get(k) for k in proxy_keys):
             results["proxy"] = "updated — applies to next outbound request"
+
+        #----- Cloudflare streaming settings changed (read live per request)
+        cf_keys = {"cf_stream_url", "cf_stream_secret", "cf_stream_mode", "cf_workers", "cf_load_strategy", "show_all_workers"}
+        if any(old.get(k) != new.get(k) for k in cf_keys):
+            results["cloudflare"] = "updated — new stream links use it right away"
+            
+            # Initialize CF Worker Manager with new configuration
+            try:
+                from Backend.helper.cf_stream import get_cf_manager
+                manager = get_cf_manager()
+                workers = new.get("cf_workers") or []
+                if workers:
+                    # Parse workers into (url, secret) tuples
+                    parsed_workers = []
+                    for item in workers:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            url = str(item[0]).strip().rstrip("/")
+                            secret = str(item[1]).strip()
+                            if url and secret:
+                                parsed_workers.append((url, secret))
+                    
+                    if parsed_workers:
+                        manager.initialize(parsed_workers)
+                        strategy = new.get("cf_load_strategy", "round-robin")
+                        manager.set_strategy(strategy)
+                        results["cloudflare"] += f" — {len(parsed_workers)} workers initialized with {strategy} strategy"
+            except Exception as exc:
+                LOGGER.error(f"SettingsManager reinit CF workers: {exc}")
+                results["cloudflare"] += f" (worker init error: {exc})"
+
+        #----- Bot tokens or Cloudflare settings changed: have the Worker reload them now
+        if old_tokens != new_tokens or any(old.get(k) != new.get(k) for k in cf_keys):
+            from Backend.helper.cf_stream import sync_worker_soon
+            sync_worker_soon()
 
         #----- Subscription enabled/disabled: start or stop the checker task
         if old.get("subscription") != new.get("subscription"):

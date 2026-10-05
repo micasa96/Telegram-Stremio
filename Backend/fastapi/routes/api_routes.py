@@ -32,6 +32,7 @@ from Backend.helper.custom_dl import ByteStreamer, _speed_test_single_client, ru
 from Backend.helper.encrypt import decode_string, encode_string
 from Backend.helper.health import run_health_checks
 from Backend.helper.manual_add import resolve_telegram_message, stamp_caption_by_ref
+from Backend.helper.pyro import resolve_video_thumb_url
 from Backend.helper.requests_manager import (
     delete_request,
     list_requests,
@@ -74,7 +75,7 @@ from Backend.helper.subtitles import (
 )
 from Backend.logger import LOGGER
 import Backend.pyrofork.bot as botmod
-from Backend.helper.announcer import delete_announcement_async
+from Backend.helper.announcer import delete_announcement_async, announce_new_media
 from Backend.pyrofork.bot import (
     StreamBot,
     client_avg_mbps,
@@ -249,6 +250,8 @@ async def update_media_api(
                 except (ValueError, TypeError):
                     pass
         update_data = {k: v for k, v in update_data.items() if v != ""}
+        if "title" in update_data:
+            update_data["title_english"] = update_data["title"]
         result = await db.update_document(media_type, tmdb_id, db_index, update_data)
         if result:
             return {"message": "Media updated successfully"}
@@ -343,7 +346,6 @@ async def create_token_api(payload: dict):
             _parse_limit(payload.get("daily_limit_gb")),
             _parse_limit(payload.get("monthly_limit_gb")),
             subscription_exempt=bool(payload.get("subscription_exempt")),
-            path_prefix=payload.get("path_prefix") or None,
         )
         return new_token
     except HTTPException:
@@ -1282,11 +1284,15 @@ async def manual_add_media_api(payload: dict) -> dict:
         base["imdb_id"] = f"tg{abs(int(base['tmdb_id']))}"
     _fill_placeholder_metadata(base)
 
-    #----- Store the file thumbnail as a base-relative path so it survives base_url changes
     thumb_url = ""
     if primary.get("has_thumb"):
         thumb_enc = await encode_string({"chat_id": int(primary["chat_id"]), "msg_id": int(primary["msg_id"])})
-        thumb_url = f"/thumb/{thumb_enc}"
+        try:
+            chat_ref = int(f"-100{str(primary['chat_id']).replace('-100', '')}")
+            msg = await client.get_messages(chat_ref, int(primary["msg_id"]))
+            thumb_url = await resolve_video_thumb_url(client, msg, thumb_enc)
+        except Exception:
+            thumb_url = f"/thumb/{thumb_enc}"
 
     #----- Split parts share one quality entry via a common group key
     group_key = f"manual:{primary['chat_id']}:{quality}:{secrets.token_hex(6)}" if is_split else None
@@ -1306,6 +1312,8 @@ async def manual_add_media_api(payload: dict) -> dict:
             "episode_overview": payload.get("episode_overview") or "",
             "episode_released": payload.get("episode_released") or "",
         }
+    elif thumb_url and not base.get("backdrop"):
+        base["backdrop"] = thumb_url
 
     for index, part in enumerate(resolved_parts, start=1):
         p_channel = int(part["chat_id"])
@@ -1327,6 +1335,7 @@ async def manual_add_media_api(payload: dict) -> dict:
         )
         if not updated_id:
             raise HTTPException(status_code=500, detail="Failed to add media (validation error).")
+        announce_new_media(metadata_info)
         await stamp_caption_by_ref(client, p_channel, p_msg, metadata_info)
 
     result_tmdb_id = base["tmdb_id"]
@@ -1667,7 +1676,7 @@ async def update_catalog_order_api(payload: dict):
     return {"ok": True, "message": "Catalog order saved."}
 
 
-async def get_user_activity_api(page: int = 1, per_page: int = 12):
+async def get_user_activity_api(page: int = 1, per_page: int = 5):
     try:
         return await get_activity_overview(page, per_page)
     except Exception as e:
@@ -1769,7 +1778,7 @@ async def update_settings_api(payload: dict) -> dict:
         del payload["session_secret"]
 
     #----- Type coercion and validation
-    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "notify_new_requests", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster"}
+    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "notify_new_requests", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster", "show_all_workers"}
     for key in bool_keys:
         if key in payload:
             payload[key] = bool(payload[key])
@@ -1883,6 +1892,33 @@ async def update_settings_api(payload: dict) -> dict:
             payload["skip_channel"], "skip channel"
         )
 
+    #----- Cloudflare Workers validation
+    if "cf_workers" in payload:
+        workers = payload["cf_workers"]
+        if not isinstance(workers, list):
+            raise HTTPException(status_code=400, detail="'cf_workers' must be a list.")
+        
+        cleaned_workers = []
+        for item in workers:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                url = str(item[0]).strip().rstrip("/")
+                secret = str(item[1]).strip()
+                if url and secret:
+                    cleaned_workers.append([url, secret])
+            elif isinstance(item, dict):
+                url = str(item.get("url", "")).strip().rstrip("/")
+                secret = str(item.get("secret", "")).strip()
+                if url and secret:
+                    cleaned_workers.append([url, secret])
+        
+        payload["cf_workers"] = cleaned_workers
+
+    if "cf_load_strategy" in payload:
+        strategy = str(payload["cf_load_strategy"] or "round-robin")
+        if strategy not in ("round-robin", "least-loaded", "random"):
+            raise HTTPException(status_code=400, detail="Invalid cf_load_strategy. Must be 'round-robin', 'least-loaded', or 'random'.")
+        payload["cf_load_strategy"] = strategy
+
     #----- The same channel id may not appear in more than one channel field.
     #----- Only AUTH ∩ ANIME is allowed, because an anime channel is an auth channel
     #----- that's flagged as anime (the receiver only indexes files from auth channels).
@@ -1922,6 +1958,8 @@ async def update_settings_api(payload: dict) -> dict:
     #----- Strip whitespace from string fields
     for key in ("tmdb_api", "base_url", "upstream_repo", "upstream_branch",
                 "admin_username", "admin_password", "session_secret", "http_proxy_url",
+                "cf_stream_url", "cf_stream_secret", "cf_stream_mode",
+                "cf_load_strategy",
                 "mediaflow_password", "payment_instructions", "payment_qr_url",
                 "announcement_channel", "request_notify_channel", "skip_channel",
                 "announcement_thread", "request_notify_thread",
@@ -2431,6 +2469,13 @@ async def import_config_api(payload: dict) -> dict:
 #----- Lightweight liveness probe; start_time changes on every boot (restart detection)
 async def health_api() -> dict:
     return {"status": "ok", "start_time": StartTime, "version": __version__}
+
+
+async def version_status_api(force: bool = False) -> dict:
+    from Backend.helper.version_check import check_upstream_version, get_version_status
+    if force:
+        await check_upstream_version(force=True)
+    return {"status": "success", "data": get_version_status()}
 
 
 #----- Full diagnostics report (DBs, bot clients, TMDB, base URL)
