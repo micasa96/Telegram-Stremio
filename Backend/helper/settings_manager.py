@@ -263,10 +263,11 @@ class Settings:
         return mode if mode in ("off", "cloudflare", "both") else "off"
     
     @property
-    def cf_workers(self) -> List[tuple]:
+    def cf_workers(self) -> List[list]:
         """
-        List of (url, secret) tuples for multi-worker configuration.
+        List of [url, secret] pairs for multi-worker configuration.
         Format: [["https://worker1.example.com", "secret1"], ["https://worker2.example.com", "secret2"]]
+        Returns lists (not tuples) for JSON serialization compatibility.
         """
         workers = self._d.get("cf_workers") or []
         if not isinstance(workers, list):
@@ -278,7 +279,7 @@ class Settings:
                 url = str(item[0]).strip().rstrip("/")
                 secret = str(item[1]).strip()
                 if url and secret:
-                    result.append((url, secret))
+                    result.append([url, secret])  # Use list for JSON compatibility
         return result
     
     @property

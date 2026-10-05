@@ -169,20 +169,6 @@ except Exception:
 @app.on_event("startup")
 async def _startup():
     asyncio.create_task(decay_client_failures())
-    #----- Initialize Cloudflare Worker Manager
-    try:
-        from Backend.helper.cf_stream import get_cf_manager
-        from Backend.helper.settings_manager import SettingsManager
-        settings = SettingsManager.current()
-        workers = settings.cf_workers
-        if workers:
-            manager = get_cf_manager()
-            manager.initialize(workers)
-            manager.set_strategy(settings.cf_load_strategy)
-            LOGGER.info(f"[STARTUP] Initialized {len(workers)} Cloudflare workers")
-    except Exception as e:
-        LOGGER.warning(f"[STARTUP] Cloudflare worker init skipped: {e}")
-    
     #----- Ensure the settings-based owner exists as an admin (never locks out).
     try:
         from Backend.helper import admin_users
