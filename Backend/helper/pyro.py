@@ -252,3 +252,12 @@ async def setup_bot_commands(bot: Client):
         LOGGER.info("Bot commands updated successfully.")
     except Exception as e:
         LOGGER.error(f"Error setting up bot commands: {e}")
+
+
+async def resolve_video_thumb_url(client, msg, thumb_enc: str) -> str:
+    """Devuelve la URL publica del thumbnail de un mensaje de Telegram.
+
+    La ruta /thumb/{id} (stream_routes.py) ya resuelve el thumbnail bajo
+    demanda con cache, asi que aqui solo hace falta la ruta relativa.
+    """
+    return f"/thumb/{thumb_enc}"
