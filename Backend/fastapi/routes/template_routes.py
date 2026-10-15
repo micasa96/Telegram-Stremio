@@ -14,6 +14,7 @@ from Backend.helper.metadata import resolve_cover_url
 from Backend.helper.pyro import get_readable_time
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.tv_coverage import compute_coverage
+from Backend.helper.stream_formatter import PRESETS
 import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot, multi_clients, work_loads_summary
 
@@ -276,5 +277,6 @@ async def settings_page(request: Request, _: bool = Depends(require_auth)):
         "settings": settings,
         "userbot_configured": botmod.Userbot is not None,
         "is_owner": is_owner,
+        "formatter_presets": PRESETS,
     })
     return templates.TemplateResponse("settings.html", ctx)

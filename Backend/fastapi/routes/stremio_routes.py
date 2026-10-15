@@ -24,6 +24,7 @@ from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
 from Backend.helper.metadata import resolve_cover_url, COMBINED_SEASON, COMBINED_EPISODE_BASE
 from Backend.helper.split_files import parse_combined_episodes, combined_name_key
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.stream_formatter import format_stream
 from Backend.helper.subtitles import get_subtitles_for, stremio_subtitle_entries
 from Backend.logger import LOGGER
 from Backend.pyrofork.bot import StreamBot, get_streambot_url
@@ -206,9 +207,11 @@ BETTERPOSTER_DEFAULT = "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jp
 RPDB_FREE = "https://api.ratingposterdb.com/t0-free-rpdb/imdb/poster-default/{imdb_id}.jpg"
 
 
-def _poster_url(imdb_id: str, fallback: str) -> str:
+def _poster_url(imdb_id: str, fallback: str, media_type: str = "movie") -> str:
     settings = SettingsManager.current()
     if imdb_id:
+        if settings.spatial_poster_enabled and settings.spatial_poster:
+            return settings.spatial_poster.replace("{type}", media_type).replace("{imdb_id}", str(imdb_id))
         if settings.better_poster_enabled:
             template = settings.better_poster or BETTERPOSTER_DEFAULT
             return template.replace("{imdb_id}", str(imdb_id))
@@ -287,7 +290,7 @@ def convert_to_stremio_meta(item: dict) -> dict:
         "id": imdb,
         "type": media_type,
         "name": _display_title(item),
-        "poster": _poster_url(imdb, item.get("poster")),
+        "poster": _poster_url(imdb, item.get("poster"), media_type),
         "logo": item.get("logo") or "",
         "year": _year_label(item) or item.get("release_year") or "",
         "releaseInfo": _year_label(item) or "",
@@ -675,7 +678,7 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
         "year": _year_label(media) or (str(media.get("release_year")) if media.get("release_year") else ""),
         "imdbRating": str(media.get("rating") or "") if media.get("rating") not in (None, "") else "",
         "genres": media.get("genres") or [],
-        "poster": _poster_url(media.get("imdb_id") or imdb_id, media.get("poster")),
+        "poster": _poster_url(media.get("imdb_id") or imdb_id, media.get("poster"), "series" if media.get("media_type") == "tv" else "movie"),
         "logo": media.get("logo") or "",
         "background": _abs_media_url(media.get("backdrop")),
         "imdb_id": media.get("imdb_id") or (id if not parsed["is_kitsu"] else ""),
@@ -813,7 +816,7 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
         # derives clean tags (resolution/source/lang) and never echoes the raw
         # caption text back to the UI.
         _, stream_title = format_stream_details(r.get("quality") or "", r["quality"], r["size"], is_split=is_split)
-        stream_name = f"🌐 GLOBAL {r['quality']}"
+        stream_name = sort_name = f"🌐 GLOBAL {r['quality']}"
         stream_title = f"{stream_title}\n📡 Telegram"
         if is_split:
             kind = "zip parts" if r.get("is_zip") else "parts"
@@ -821,13 +824,18 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
         # Use a neutral slug in the download URL instead of the raw caption.
         url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r.get('quality') or 'video')}"
         size_bytes = parse_size_to_bytes(r.get("size", ""))
+        custom = format_stream(SettingsManager.current(), r["title"], size_bytes, addon_name="🌐 Global",
+                               is_split=is_split, parts=r.get("part_count", 0), channel=r.get("source_chat"))
+        if custom:
+            stream_name, stream_title = custom
+        url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r['title'])}"
         if cf_enabled():
             cf_url = cf_stream_url(token, r['token'], quote(r['title']))
             if SettingsManager.current().cf_stream_mode == "cloudflare":
                 url = cf_url
             else:
-                streams.append({"name": f"{stream_name} (Cloudflare)", "title": stream_title, "url": cf_url, "size_bytes": size_bytes})
-        streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
+                streams.append({"name": f"{stream_name} (Cloudflare)", "title": stream_title, "url": cf_url, "size_bytes": size_bytes, "sort_name": sort_name})
+        streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes, "sort_name": sort_name})
     return streams
 
 
@@ -1077,6 +1085,11 @@ async def get_streams(
     is_combined = season_num == COMBINED_SEASON and episode_num is not None and episode_num >= COMBINED_EPISODE_BASE
 
     if media_details and "telegram" in media_details:
+        fmt_meta = {
+            "queryType": media_type, "type": media_type, "isAnime": bool(media_details.get("is_anime")),
+            "title": media_details.get("title"), "year": media_details.get("release_year"),
+            "season": season_num, "episode": episode_num,
+        }
         for quality in media_details.get("telegram", []):
             if quality.get("id"):
                 filename = quality.get("name", "")
@@ -1092,26 +1105,35 @@ async def get_streams(
                     filename, quality_str, size, is_split=bool(quality.get("group_key"))
                 )
 
-                if combined:
-                    label = "Full" if combined.get("start") is None else f"E{combined['start']:02d}-E{combined['end']:02d}"
-                    if label.lower() not in stream_name.lower():
-                        stream_name = f"{stream_name} {label}"
-
+                sort_name = stream_name
                 original_url = f"{SettingsManager.current().base_url}/dl/{token}/{quality.get('id')}/video.mkv"
                 proxy_url = build_proxy_url(original_url)
                 cf_url = cf_stream_url(token, quality.get('id'), "video.mkv") if cf_enabled() else None
                 cf_only = cf_url and SettingsManager.current().cf_stream_mode == "cloudflare"
 
+                def add(suffix, url, proxied=False):
+                    name, title = stream_name, stream_title
+                    custom = format_stream(
+                        SettingsManager.current(), filename, size_bytes, addon_name=ADDON_NAME, proxied=proxied,
+                        is_split=bool(quality.get("group_key")), meta=fmt_meta,
+                    )
+                    if custom:
+                        name, title = custom
+                    if combined:
+                        label = "Full" if combined.get("start") is None else f"E{combined['start']:02d}-E{combined['end']:02d}"
+                        if label.lower() not in name.lower():
+                            name = f"{name} {label}"
+                    streams.append({"name": f"{name} {suffix}".strip(), "title": title, "url": url, "size_bytes": size_bytes,
+                                    "episode_start": episode_start, "name_key": name_key, "sort_name": sort_name})
+
                 if cf_url:
-                    streams.append({"name": stream_name if cf_only else f"{stream_name} (Cloudflare)", "title": stream_title, "url": cf_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    add("" if cf_only else "(Cloudflare)", cf_url)
                 if not cf_only:
                     if SettingsManager.current().show_proxy_and_non_proxy_both and proxy_url:
-                        streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                        streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                    elif proxy_url:
-                        streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                        add("(Proxy)", proxy_url, True)
+                        add("(Direct)", original_url)
                     else:
-                        streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                        add("", proxy_url or original_url, bool(proxy_url))
     elif is_global_search_enabled():
         try:
             is_anime = bool(is_kitsu or (media_details and media_details.get("is_anime")))
@@ -1136,7 +1158,7 @@ async def get_streams(
     config = token_data.get("config") or {}
     quality_filter = set(config.get("quality_filter") or [])
     if quality_filter and streams:
-        filtered = [s for s in streams if stream_res_label(s.get("name", "")) in quality_filter]
+        filtered = [s for s in streams if stream_res_label(s.get("sort_name", s.get("name", ""))) in quality_filter]
         if filtered:
             streams = filtered
 
@@ -1164,10 +1186,10 @@ async def get_streams(
     if is_combined:
         streams.sort(key=lambda s: s.get("episode_start", 0))
         streams.sort(key=lambda s: s.get("name_key", ""))
-        streams.sort(key=lambda s: get_resolution_priority(s.get("name", "")), reverse=not ascending)
+        streams.sort(key=lambda s: get_resolution_priority(s.get("sort_name", s.get("name", ""))), reverse=not ascending)
     else:
         streams.sort(
-            key=lambda s: (get_resolution_priority(s.get("name", "")), s.get("size_bytes", 0)),
+            key=lambda s: (get_resolution_priority(s.get("sort_name", s.get("name", ""))), s.get("size_bytes", 0)),
             reverse=not ascending
         )
     name_count: dict = {}
@@ -1176,7 +1198,7 @@ async def get_streams(
 
     seen: dict = {}
     for s in streams:
-        if name_count[s["name"]] > 1:
+        if name_count[s["name"]] > 1 and SettingsManager.current().stream_formatter == "default":
             seen[s["name"]] = seen.get(s["name"], 0) + 1
             s["name"] = f"{s['name']} ({seen[s['name']]})"
     return {"streams": streams}
