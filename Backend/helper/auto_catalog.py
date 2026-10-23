@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import httpx
 
 from Backend.helper.metadata import tmdb_api_key
+from Backend.helper.bounded import BoundedDict
 from Backend.logger import LOGGER
 
 AUTO_CATALOG_REGION = "IN"
@@ -268,9 +269,9 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     }
 
 
-_TMDB_FIND_CACHE: dict = {}
-_TMDB_DETAILS_CACHE: dict = {}
-_TMDB_PROVIDERS_CACHE: dict = {}
+_TMDB_FIND_CACHE = BoundedDict(500)
+_TMDB_DETAILS_CACHE = BoundedDict(300)
+_TMDB_PROVIDERS_CACHE = BoundedDict(300)
 _TMDB_INFLIGHT: Dict[tuple, asyncio.Future] = {}
 
 
