@@ -138,64 +138,98 @@ def _merge_filters(*filters) -> dict:
     return parts[0] if len(parts) == 1 else {"$and": parts}
 
 
-_TMDB_TRENDING_CACHE: dict = {}
-_TMDB_TRENDING_LOCKS: dict = {}
-_TMDB_TRENDING_TTL = 600  # 10 minutes cache
+_TMDB_LIST_CACHE: dict = {}
+_TMDB_LIST_LOCKS: dict = {}
+_TMDB_LIST_TTL = 600  # 10 minutes cache
+TMDB_LIST_PAGES = 20  # 20 pages x 20 items = up to 400 ranked ids
 
 
-async def _get_tmdb_trending_ids(media_type: str, time_window: str = "day", pages: int = 3) -> list[int]:
-    """Fetch trending TMDB IDs across several pages (cached for 10 minutes)."""
+def _tmdb_list_url(list_name: str, media_type: str, time_window: str) -> str:
+    if list_name == "trending":
+        return f"https://api.themoviedb.org/3/trending/{media_type}/{time_window}"
+    return f"https://api.themoviedb.org/3/{media_type}/{list_name}"
+
+
+async def _get_tmdb_list_ids(
+    list_name: str,
+    media_type: str,
+    time_window: str = "day",
+    pages: int = TMDB_LIST_PAGES,
+) -> list[int]:
+    """Fetch ordered ids from a TMDB list endpoint (trending/popular).
+
+    Pages are fetched concurrently and concatenated in ascending page order so
+    the result keeps TMDB's exact ranking. Cached for 10 minutes.
+    """
     api_key = tmdb_api_key()
     if not api_key:
         return []
 
-    cache_key = (media_type, time_window, pages)
+    pages = max(1, int(pages))
+    cache_key = (list_name, media_type, time_window, pages)
     now = time.monotonic()
-    cached = _TMDB_TRENDING_CACHE.get(cache_key)
-    if cached and now - cached[0] < _TMDB_TRENDING_TTL:
+    cached = _TMDB_LIST_CACHE.get(cache_key)
+    if cached and now - cached[0] < _TMDB_LIST_TTL:
         return list(cached[1])
 
-    lock = _TMDB_TRENDING_LOCKS.setdefault(cache_key, asyncio.Lock())
+    lock = _TMDB_LIST_LOCKS.setdefault(cache_key, asyncio.Lock())
     async with lock:
-        now = time.monotonic()
-        cached = _TMDB_TRENDING_CACHE.get(cache_key)
-        if cached and now - cached[0] < _TMDB_TRENDING_TTL:
+        cached = _TMDB_LIST_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached[0] < _TMDB_LIST_TTL:
             return list(cached[1])
+
+        url = _tmdb_list_url(list_name, media_type, time_window)
+        semaphore = asyncio.Semaphore(6)
+
+        async def _fetch_page(client, page_no: int):
+            async with semaphore:
+                try:
+                    resp = await client.get(url, params={"api_key": api_key, "page": page_no})
+                except Exception:
+                    return page_no, []
+                if resp.status_code != 200:
+                    return page_no, []
+                return page_no, (resp.json() or {}).get("results") or []
 
         ids: list[int] = []
         seen: set[int] = set()
         try:
-            url = f"https://api.themoviedb.org/3/trending/{media_type}/{time_window}"
             async with httpx.AsyncClient(timeout=10.0) as client:
-                for page_no in range(1, max(1, pages) + 1):
-                    resp = await client.get(url, params={"api_key": api_key, "page": page_no})
-                    if resp.status_code != 200:
-                        break
-                    data = resp.json()
-                    results = data.get("results") or []
-                    for item in results:
-                        raw_id = item.get("id")
-                        if not raw_id:
-                            continue
-                        try:
-                            tid = int(raw_id)
-                        except (TypeError, ValueError):
-                            continue
-                        if tid in seen:
-                            continue
-                        seen.add(tid)
-                        ids.append(tid)
-                    if page_no >= int(data.get("total_pages") or page_no):
-                        break
+                pages_data = await asyncio.gather(
+                    *(_fetch_page(client, p) for p in range(1, pages + 1))
+                )
+            for _, results in sorted(pages_data, key=lambda pair: pair[0]):
+                for item in results:
+                    raw_id = item.get("id")
+                    if not raw_id:
+                        continue
+                    try:
+                        tid = int(raw_id)
+                    except (TypeError, ValueError):
+                        continue
+                    if tid in seen:
+                        continue
+                    seen.add(tid)
+                    ids.append(tid)
         except Exception as exc:
-            LOGGER.warning(f"[TMDB Trending] Fetch failed for {media_type}: {exc}")
+            LOGGER.warning(f"[TMDB {list_name}] Fetch failed for {media_type}: {exc}")
             if cached:
                 return list(cached[1])
             return []
 
         if ids:
-            _TMDB_TRENDING_CACHE[cache_key] = (time.monotonic(), ids)
+            _TMDB_LIST_CACHE[cache_key] = (time.monotonic(), ids)
         return ids
+
+
+async def _get_tmdb_trending_ids(
+    media_type: str, time_window: str = "day", pages: int = TMDB_LIST_PAGES
+) -> list[int]:
+    return await _get_tmdb_list_ids("trending", media_type, time_window, pages)
+
+
+async def _get_tmdb_popular_ids(media_type: str, pages: int = TMDB_LIST_PAGES) -> list[int]:
+    return await _get_tmdb_list_ids("popular", media_type, "day", pages)
 
 
 async def _get_db_matches_in_tmdb_order(
@@ -242,6 +276,69 @@ async def _get_db_matches_in_tmdb_order(
     # Preserve the exact ranking from TMDB
     ordered = [by_tmdb_id[tid] for tid in tmdb_ids if tid in by_tmdb_id]
     return ordered
+
+
+async def _build_tmdb_ranked_items(
+    media_type: str,
+    tmdb_ids: list[int],
+    token_data: dict,
+    genre_filter: Optional[str],
+    stremio_skip: int,
+) -> list[dict]:
+    """Intersect a ranked TMDB id list with the local library, keeping TMDB order."""
+    if not tmdb_ids:
+        return []
+    db_matches = await _get_db_matches_in_tmdb_order(
+        media_type, tmdb_ids, token_data, genre_filter=genre_filter
+    )
+    start = max(stremio_skip, 0)
+    return db_matches[start:start + PAGE_SIZE]
+
+
+async def _search_local_items(
+    media_type: str,
+    token_data: dict,
+    genre_filter: Optional[str],
+    search_query: str,
+    page: int,
+) -> list[dict]:
+    """Search the whole local library (not just the TMDB-ranked slice)."""
+    db_media_type = "tv" if media_type == "series" else "movie"
+    query_parts = [_visibility_query(token_data), _not_exclusive_clause()]
+    if genre_filter:
+        query_parts.append({"genres": {"$in": [genre_filter]}})
+    found = await db.search_documents(
+        query=search_query,
+        page=page,
+        page_size=PAGE_SIZE,
+        extra_filter=_merge_filters(*query_parts),
+        media_type=db_media_type,
+    )
+    return [
+        it for it in found.get("results", [])
+        if it.get("media_type") == db_media_type
+    ]
+
+
+async def _local_sorted_items(
+    media_type: str,
+    token_data: dict,
+    genre_filter: Optional[str],
+    page: int,
+    sort_params: list[tuple],
+) -> list[dict]:
+    vis_filter = _merge_filters(_visibility_query(token_data), _not_exclusive_clause())
+    if media_type == "movie":
+        data = await db.sort_movies(
+            sort_params, page, PAGE_SIZE, genre_filter=genre_filter,
+            extra_filter=vis_filter, projection=META_PROJECTION,
+        )
+        return data.get("movies", [])
+    data = await db.sort_tv_shows(
+        sort_params, page, PAGE_SIZE, genre_filter=genre_filter,
+        extra_filter=vis_filter, projection=META_PROJECTION,
+    )
+    return data.get("tv_shows", [])
 
 
 def _parse_stremio_id(id: str):
@@ -1453,35 +1550,45 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
             if media_type != expected_type:
                 return {"metas": []}
 
-            items = []
-            tmdb_type = "movie" if media_type == "movie" else "tv"
-            trending_ids = await _get_tmdb_trending_ids(tmdb_type, "day")
-            if trending_ids:
-                db_matches = await _get_db_matches_in_tmdb_order(
-                    media_type, trending_ids, token_data, genre_filter=genre_filter
+            if search_query:
+                items = await _search_local_items(
+                    media_type, token_data, genre_filter, search_query, page
                 )
-                if search_query:
-                    q = search_query.lower()
-                    db_matches = [
-                        it for it in db_matches
-                        if q in (it.get("title") or "").lower()
-                        or q in (it.get("name") or "").lower()
-                        or q in (it.get("original_title") or "").lower()
-                    ]
-                start = max(stremio_skip, 0)
-                items = db_matches[start:start + PAGE_SIZE]
+            else:
+                tmdb_type = "movie" if media_type == "movie" else "tv"
+                ranked_ids = await _get_tmdb_trending_ids(tmdb_type, "day")
+                items = await _build_tmdb_ranked_items(
+                    media_type, ranked_ids, token_data, genre_filter, stremio_skip
+                )
 
             # Fallback to latest uploaded media if TMDB is unconfigured, empty, or returns no DB matches
-            if not items and stremio_skip == 0:
+            if not items and stremio_skip == 0 and not search_query:
                 LOGGER.info(f"[TMDB Trending] Falling back to latest {media_type} for catalog {id}")
-                sort_params = [("updated_on", "desc")]
-                vis_filter = _merge_filters(_visibility_query(token_data), _not_exclusive_clause())
-                if media_type == "movie":
-                    data = await db.sort_movies(sort_params, page, PAGE_SIZE, genre_filter=genre_filter, extra_filter=vis_filter, projection=META_PROJECTION)
-                    items = data.get("movies", [])
-                else:
-                    data = await db.sort_tv_shows(sort_params, page, PAGE_SIZE, genre_filter=genre_filter, extra_filter=vis_filter, projection=META_PROJECTION)
-                    items = data.get("tv_shows", [])
+                items = await _local_sorted_items(
+                    media_type, token_data, genre_filter, page, [("updated_on", "desc")]
+                )
+        elif id in {"top_movies", "top_series"}:
+            expected_type = "movie" if id == "top_movies" else "series"
+            if media_type != expected_type:
+                return {"metas": []}
+
+            if search_query:
+                items = await _search_local_items(
+                    media_type, token_data, genre_filter, search_query, page
+                )
+            else:
+                tmdb_type = "movie" if media_type == "movie" else "tv"
+                ranked_ids = await _get_tmdb_popular_ids(tmdb_type)
+                items = await _build_tmdb_ranked_items(
+                    media_type, ranked_ids, token_data, genre_filter, stremio_skip
+                )
+
+            # Fallback to local rating sort if TMDB is unconfigured, empty, or returns no DB matches
+            if not items and stremio_skip == 0 and not search_query:
+                LOGGER.info(f"[TMDB Popular] Falling back to rating sort for {media_type} catalog {id}")
+                items = await _local_sorted_items(
+                    media_type, token_data, genre_filter, page, [("rating", "desc")]
+                )
         else:
             if "latest" in id:
                 sort_params = [("updated_on", "desc")]
