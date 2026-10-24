@@ -100,6 +100,9 @@ def _provider_bucket(provider_name: str) -> Optional[str]:
     value = (provider_name or "").strip().lower()
     if not value:
         return None
+    # "max" is an HBO alias, but must not swallow unrelated services.
+    if "cinemax" in value:
+        return None
     for needle, bucket in _PROVIDER_ALIASES.items():
         if needle in value:
             return bucket
