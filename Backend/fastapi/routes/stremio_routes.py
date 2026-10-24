@@ -143,13 +143,13 @@ _TMDB_TRENDING_LOCKS: dict = {}
 _TMDB_TRENDING_TTL = 600  # 10 minutes cache
 
 
-async def _get_tmdb_trending_ids(media_type: str, time_window: str = "day") -> list[int]:
-    """Fetch daily trending TMDB IDs (cached for 10 minutes)."""
+async def _get_tmdb_trending_ids(media_type: str, time_window: str = "day", pages: int = 3) -> list[int]:
+    """Fetch trending TMDB IDs across several pages (cached for 10 minutes)."""
     api_key = tmdb_api_key()
     if not api_key:
         return []
 
-    cache_key = (media_type, time_window)
+    cache_key = (media_type, time_window, pages)
     now = time.monotonic()
     cached = _TMDB_TRENDING_CACHE.get(cache_key)
     if cached and now - cached[0] < _TMDB_TRENDING_TTL:
@@ -163,19 +163,30 @@ async def _get_tmdb_trending_ids(media_type: str, time_window: str = "day") -> l
             return list(cached[1])
 
         ids: list[int] = []
+        seen: set[int] = set()
         try:
             url = f"https://api.themoviedb.org/3/trending/{media_type}/{time_window}"
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params={"api_key": api_key, "page": 1})
-                if resp.status_code == 200:
+                for page_no in range(1, max(1, pages) + 1):
+                    resp = await client.get(url, params={"api_key": api_key, "page": page_no})
+                    if resp.status_code != 200:
+                        break
                     data = resp.json()
-                    for item in data.get("results") or []:
+                    results = data.get("results") or []
+                    for item in results:
                         raw_id = item.get("id")
-                        if raw_id:
-                            try:
-                                ids.append(int(raw_id))
-                            except (TypeError, ValueError):
-                                pass
+                        if not raw_id:
+                            continue
+                        try:
+                            tid = int(raw_id)
+                        except (TypeError, ValueError):
+                            continue
+                        if tid in seen:
+                            continue
+                        seen.add(tid)
+                        ids.append(tid)
+                    if page_no >= int(data.get("total_pages") or page_no):
+                        break
         except Exception as exc:
             LOGGER.warning(f"[TMDB Trending] Fetch failed for {media_type}: {exc}")
             if cached:
