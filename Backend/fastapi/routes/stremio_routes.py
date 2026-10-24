@@ -142,6 +142,7 @@ _TMDB_LIST_CACHE: dict = {}
 _TMDB_LIST_LOCKS: dict = {}
 _TMDB_LIST_TTL = 600  # 10 minutes cache
 TMDB_LIST_PAGES = 20  # 20 pages x 20 items = up to 400 ranked ids
+TMDB_CATALOG_REGION = "MX"  # only applied to movie/popular (tv/popular has no region)
 
 
 def _tmdb_list_url(list_name: str, media_type: str, time_window: str) -> str:
@@ -182,9 +183,12 @@ async def _get_tmdb_list_ids(
         semaphore = asyncio.Semaphore(6)
 
         async def _fetch_page(client, page_no: int):
+            params = {"api_key": api_key, "page": page_no}
+            if list_name == "popular" and media_type == "movie":
+                params["region"] = TMDB_CATALOG_REGION
             async with semaphore:
                 try:
-                    resp = await client.get(url, params={"api_key": api_key, "page": page_no})
+                    resp = await client.get(url, params=params)
                 except Exception:
                     return page_no, []
                 if resp.status_code != 200:
@@ -211,6 +215,17 @@ async def _get_tmdb_list_ids(
                         continue
                     seen.add(tid)
                     ids.append(tid)
+
+            first_page = next((res for pg, res in pages_data if pg == 1), [])
+            top_titles = [(r.get("title") or r.get("name") or "") for r in first_page[:5]]
+            region_note = (
+                f" region={TMDB_CATALOG_REGION}"
+                if list_name == "popular" and media_type == "movie"
+                else ""
+            )
+            LOGGER.info(
+                f"[TMDB {list_name}/{media_type}]{region_note} {len(ids)} ordered ids | top: {top_titles}"
+            )
         except Exception as exc:
             LOGGER.warning(f"[TMDB {list_name}] Fetch failed for {media_type}: {exc}")
             if cached:

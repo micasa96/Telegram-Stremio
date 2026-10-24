@@ -8,7 +8,8 @@ from Backend.helper.metadata import tmdb_api_key
 from Backend.helper.bounded import BoundedDict
 from Backend.logger import LOGGER
 
-AUTO_CATALOG_REGION = "US"
+AUTO_CATALOG_REGIONS = ["MX", "US"]
+AUTO_CATALOG_REGION = AUTO_CATALOG_REGIONS[0]
 AUTO_SYNC_CONCURRENCY = 5
 
 #----- User can choose exactly which auto catalogs are enabled.
@@ -106,10 +107,19 @@ def _provider_bucket(provider_name: str) -> Optional[str]:
 
 
 def _extract_provider_names(watch_data: dict) -> List[str]:
+    """Provider names where the title is actually included (subscription), not rent/buy.
+
+    Uses the first region that has data, in priority order (MX, then US).
+    """
     results = (watch_data or {}).get("results") or {}
-    region_data = results.get(AUTO_CATALOG_REGION) or results.get("US") or {}
+    region_data: dict = {}
+    for region in AUTO_CATALOG_REGIONS:
+        candidate = results.get(region) or {}
+        if candidate:
+            region_data = candidate
+            break
     names: List[str] = []
-    for group in ["flatrate", "ads", "free", "rent", "buy"]:
+    for group in ["flatrate", "free", "ads"]:
         for provider in region_data.get(group, []) or []:
             name = provider.get("provider_name")
             if name:
