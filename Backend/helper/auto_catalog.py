@@ -109,6 +109,11 @@ def _provider_bucket(provider_name: str) -> Optional[str]:
     return None
 
 
+def provider_bucket(provider_name: str) -> Optional[str]:
+    """Public alias: maps a TMDB provider name to its catalog bucket name."""
+    return _provider_bucket(provider_name)
+
+
 def _extract_provider_names(watch_data: dict) -> List[str]:
     """Provider names where the title is actually included (subscription), not rent/buy.
 

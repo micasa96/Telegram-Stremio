@@ -15,6 +15,7 @@ from pyrogram.errors import UserNotParticipant
 import httpx
 
 from Backend import __version__, db
+from Backend.helper.auto_catalog import provider_bucket
 from Backend.helper.database import META_PROJECTION
 from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
@@ -144,6 +145,17 @@ _TMDB_LIST_TTL = 600  # 10 minutes cache
 TMDB_LIST_PAGES = 20  # 20 pages x 20 items = up to 400 ranked ids
 TMDB_CATALOG_REGION = "MX"  # only applied to movie/popular (tv/popular has no region)
 
+# OTT auto-catalog auto_key -> catalog bucket name produced by provider_bucket()
+_OTT_AUTO_KEYS = {
+    "auto_netflix": "Netflix",
+    "auto_prime_video": "Prime Video",
+    "auto_disney": "Disney+",
+    "auto_hbo": "HBO",
+    "auto_apple_tv": "Apple TV",
+    "auto_hulu": "Hulu",
+    "auto_crunchyroll": "Crunchyroll",
+}
+
 
 def _tmdb_list_url(list_name: str, media_type: str, time_window: str) -> str:
     if list_name == "trending":
@@ -247,6 +259,145 @@ async def _get_tmdb_popular_ids(media_type: str, pages: int = TMDB_LIST_PAGES) -
     return await _get_tmdb_list_ids("popular", media_type, "day", pages)
 
 
+_TMDB_PROVIDER_MAP_CACHE: dict = {}
+_TMDB_PROVIDER_MAP_TTL = 86400  # 24 hours
+
+# Storefronts and channel add-ons that must not count as a subscription service.
+_PROVIDER_SKIP_WORDS = (
+    "store",
+    "channel",
+    "amazon video",
+    "google play",
+    "youtube",
+    "fandango",
+)
+
+_TMDB_DISCOVER_CACHE: dict = {}
+_TMDB_DISCOVER_LOCKS: dict = {}
+_TMDB_DISCOVER_TTL = 600  # 10 minutes
+
+
+async def _get_region_provider_buckets(media_type: str, region: str) -> dict:
+    """Map catalog bucket name -> TMDB provider ids actually available in a region.
+
+    Storefronts (rent/buy) and channel add-ons are skipped so a platform catalog
+    only reflects the real subscription service.
+    """
+    api_key = tmdb_api_key()
+    if not api_key:
+        return {}
+
+    cache_key = (media_type, region)
+    now = time.monotonic()
+    cached = _TMDB_PROVIDER_MAP_CACHE.get(cache_key)
+    if cached and now - cached[0] < _TMDB_PROVIDER_MAP_TTL:
+        return cached[1]
+
+    buckets: dict = {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.themoviedb.org/3/watch/providers/{media_type}",
+                params={"api_key": api_key, "watch_region": region},
+            )
+        if resp.status_code != 200:
+            return buckets
+        for provider in (resp.json() or {}).get("results") or []:
+            name = (provider.get("provider_name") or "").strip()
+            low = name.lower()
+            if not low or any(word in low for word in _PROVIDER_SKIP_WORDS):
+                continue
+            bucket = provider_bucket(name)
+            pid = provider.get("provider_id")
+            if bucket and pid is not None:
+                buckets.setdefault(bucket, []).append(int(pid))
+    except Exception as exc:
+        LOGGER.warning(f"[TMDB Providers] region map failed for {media_type}/{region}: {exc}")
+        return cached[1] if cached else buckets
+
+    _TMDB_PROVIDER_MAP_CACHE[cache_key] = (time.monotonic(), buckets)
+    return buckets
+
+
+async def _get_provider_discover_ids(
+    provider_ids: list[int],
+    media_type: str,
+    region: str,
+    pages: int = TMDB_LIST_PAGES,
+) -> list[int]:
+    """Ordered ids for 'top on this platform' in the given region."""
+    api_key = tmdb_api_key()
+    if not api_key or not provider_ids:
+        return []
+
+    pages = max(1, int(pages))
+    provider_param = "|".join(str(pid) for pid in sorted(set(provider_ids)))
+    cache_key = (media_type, region, provider_param, pages)
+    now = time.monotonic()
+    cached = _TMDB_DISCOVER_CACHE.get(cache_key)
+    if cached and now - cached[0] < _TMDB_DISCOVER_TTL:
+        return list(cached[1])
+
+    lock = _TMDB_DISCOVER_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        cached = _TMDB_DISCOVER_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached[0] < _TMDB_DISCOVER_TTL:
+            return list(cached[1])
+
+        url = f"https://api.themoviedb.org/3/discover/{media_type}"
+        semaphore = asyncio.Semaphore(6)
+
+        async def _fetch_page(client, page_no: int):
+            async with semaphore:
+                try:
+                    resp = await client.get(url, params={
+                        "api_key": api_key,
+                        "page": page_no,
+                        "sort_by": "popularity.desc",
+                        "watch_region": region,
+                        "with_watch_providers": provider_param,
+                    })
+                except Exception:
+                    return page_no, []
+                if resp.status_code != 200:
+                    return page_no, []
+                return page_no, (resp.json() or {}).get("results") or []
+
+        ids: list[int] = []
+        seen: set[int] = set()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                pages_data = await asyncio.gather(
+                    *(_fetch_page(client, p) for p in range(1, pages + 1))
+                )
+            for _, results in sorted(pages_data, key=lambda pair: pair[0]):
+                for item in results:
+                    raw_id = item.get("id")
+                    if not raw_id:
+                        continue
+                    try:
+                        tid = int(raw_id)
+                    except (TypeError, ValueError):
+                        continue
+                    if tid in seen:
+                        continue
+                    seen.add(tid)
+                    ids.append(tid)
+            first_page = next((res for pg, res in pages_data if pg == 1), [])
+            top_titles = [(r.get("title") or r.get("name") or "") for r in first_page[:5]]
+            LOGGER.info(
+                f"[TMDB discover/{media_type}] providers={provider_param} region={region} "
+                f"{len(ids)} ids | top: {top_titles}"
+            )
+        except Exception as exc:
+            LOGGER.warning(f"[TMDB discover] failed for {media_type}/{provider_param}: {exc}")
+            return list(cached[1]) if cached else []
+
+        if ids:
+            _TMDB_DISCOVER_CACHE[cache_key] = (time.monotonic(), ids)
+        return ids
+
+
 async def _get_db_matches_in_tmdb_order(
     media_type: str, tmdb_ids: list[int], token_data: dict, genre_filter: Optional[str] = None
 ) -> list[dict]:
@@ -332,6 +483,45 @@ async def _search_local_items(
     return [
         it for it in found.get("results", [])
         if it.get("media_type") == db_media_type
+    ]
+
+
+async def _stored_catalog_items(
+    catalog: dict,
+    media_type: str,
+    token_data: dict,
+    search_query: Optional[str],
+    page: int,
+) -> list[dict]:
+    """Serve the items snapshot stored in a custom/auto catalog document."""
+    db_media_type = "tv" if media_type == "series" else "movie"
+    visible_items = [
+        it for it in (catalog.get("items") or [])
+        if it.get("media_type") == db_media_type
+        and _token_can_view(*_effective_visibility(catalog, it), token_data)
+    ]
+    visible_items.sort(
+        key=lambda it: it.get("updated_on") or it.get("added_at") or datetime.min,
+        reverse=True,
+    )
+    if search_query:
+        ids = [int(it["tmdb_id"]) for it in visible_items if it.get("tmdb_id") is not None]
+        found = await db.search_documents(
+            query=search_query, page=page, page_size=PAGE_SIZE,
+            extra_filter=_merge_filters({"tmdb_id": {"$in": ids}}, _visibility_query(token_data)),
+            media_type=db_media_type,
+        )
+        return [
+            it for it in found.get("results", [])
+            if it.get("media_type") == db_media_type
+        ]
+    start = (page - 1) * PAGE_SIZE
+    items = await db.get_documents(visible_items[start:start + PAGE_SIZE])
+    return [
+        it for it in items
+        if _token_can_view(
+            it.get("visibility") or "public", it.get("allowed_tokens") or [], token_data
+        )
     ]
 
 
@@ -746,6 +936,18 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
                 ]
                 has_movie = any(i.get("media_type") == "movie" for i in visible_items)
                 has_series = any(i.get("media_type") == "tv" for i in visible_items)
+
+                # OTT auto catalogs are served live from TMDB, so their stored
+                # snapshot may be empty while the catalog is still usable.
+                ott_bucket = _OTT_AUTO_KEYS.get(catalog.get("auto_key") or "")
+                if catalog.get("auto") and ott_bucket and catalog.get("visible", True):
+                    catalog_vis = catalog.get("visibility") or "public"
+                    if _token_can_view(
+                        catalog_vis, catalog.get("allowed_tokens") or [], token_data
+                    ):
+                        has_movie = True
+                        has_series = True
+
                 if not has_movie and not has_series:
                     continue
                 catalog_id = str(catalog.get("_id"))
@@ -1532,25 +1734,42 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
             if not catalog:
                 return {"metas": []}
 
-            db_media_type = "tv" if media_type == "series" else "movie"
-            visible_items = [
-                it for it in (catalog.get("items") or [])
-                if it.get("media_type") == db_media_type
-                and _token_can_view(*_effective_visibility(catalog, it), token_data)
-            ]
-            visible_items.sort(key=lambda it: it.get("updated_on") or it.get("added_at") or datetime.min, reverse=True)
-            if search_query:
-                ids = [int(it["tmdb_id"]) for it in visible_items if it.get("tmdb_id") is not None]
-                found = await db.search_documents(
-                    query=search_query, page=page, page_size=PAGE_SIZE,
-                    extra_filter=_merge_filters({"tmdb_id": {"$in": ids}}, _visibility_query(token_data)),
-                    media_type=db_media_type,
+            ott_bucket = _OTT_AUTO_KEYS.get(catalog.get("auto_key") or "")
+            if catalog.get("auto") and ott_bucket:
+                catalog_vis = catalog.get("visibility") or (
+                    "public" if catalog.get("visible", True) else "owner"
                 )
-                items = [it for it in found.get("results", []) if it.get("media_type") == db_media_type]
+                if not _token_can_view(
+                    catalog_vis, catalog.get("allowed_tokens") or [], token_data
+                ):
+                    return {"metas": []}
+
+                if search_query:
+                    items = await _search_local_items(
+                        media_type, token_data, genre_filter, search_query, page
+                    )
+                else:
+                    tmdb_type = "movie" if media_type == "movie" else "tv"
+                    provider_map = await _get_region_provider_buckets(
+                        tmdb_type, TMDB_CATALOG_REGION
+                    )
+                    provider_ids = provider_map.get(ott_bucket) or []
+                    ranked_ids = await _get_provider_discover_ids(
+                        provider_ids, tmdb_type, TMDB_CATALOG_REGION
+                    )
+                    items = await _build_tmdb_ranked_items(
+                        media_type, ranked_ids, token_data, genre_filter, stremio_skip
+                    )
+
+                # Fall back to the stored snapshot when TMDB has nothing to offer
+                if not items and stremio_skip == 0 and not search_query:
+                    items = await _stored_catalog_items(
+                        catalog, media_type, token_data, None, page
+                    )
             else:
-                start = (page - 1) * PAGE_SIZE
-                items = await db.get_documents(visible_items[start:start + PAGE_SIZE])
-                items = [it for it in items if _token_can_view(it.get("visibility") or "public", it.get("allowed_tokens") or [], token_data)]
+                items = await _stored_catalog_items(
+                    catalog, media_type, token_data, search_query, page
+                )
         elif search_query:
             search_results = await db.search_documents(
                 query=search_query, page=page, page_size=PAGE_SIZE,
