@@ -558,6 +558,33 @@ async def _rebuild_auto_catalogs(db, catalog_items: Dict[str, List[dict]], enabl
             upsert=True,
         )
 
+    # Enabled catalogs with no tagged titles still need a document: OTT catalogs
+    # are served live from TMDB, so an empty snapshot must not hide them.
+    for name in enabled_names:
+        if name in catalog_items:
+            continue
+        await collection.update_one(
+            {"auto_key": _catalog_key(name)},
+            {
+                "$set": {
+                    "name": name,
+                    "visible": True,
+                    "auto": True,
+                    "auto_key": _catalog_key(name),
+                    "items": [],
+                    "item_count": 0,
+                    "updated_at": now,
+                    "last_auto_sync": now,
+                },
+                "$setOnInsert": {
+                    "created_at": now,
+                    "visibility": "public",
+                    "allowed_tokens": [],
+                },
+            },
+            upsert=True,
+        )
+
 
     active_keys = {_catalog_key(name) for name in enabled_names}
     await collection.update_many(
