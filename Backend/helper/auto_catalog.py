@@ -5,14 +5,29 @@ from typing import Dict, List, Optional, Set, Tuple
 import httpx
 
 from Backend.helper.metadata import tmdb_api_key
+<<<<<<< HEAD
+from Backend.logger import LOGGER
+
+AUTO_CATALOG_REGION = "US"
+=======
 from Backend.helper.bounded import BoundedDict
 from Backend.logger import LOGGER
 
 AUTO_CATALOG_REGION = "IN"
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 AUTO_SYNC_CONCURRENCY = 5
 
 #----- User can choose exactly which auto catalogs are enabled.
 AUTO_CATALOG_DEFINITIONS = [
+<<<<<<< HEAD
+    {"key": "hollywood", "name": "Hollywood", "group": "Language"},
+    {"key": "anime", "name": "Anime", "group": "Language"},
+    {"key": "kdrama", "name": "K-Drama", "group": "Language"},
+    {"key": "japanese", "name": "Japanese", "group": "Language"},
+    {"key": "korean", "name": "Korean", "group": "Language"},
+    {"key": "cartoons", "name": "Cartoons", "group": "Language"},
+    {"key": "novelas", "name": "Novelas", "group": "Language"},
+=======
     {"key": "bollywood", "name": "Bollywood", "group": "Language"},
     {"key": "hollywood", "name": "Hollywood", "group": "Language"},
     {"key": "anime", "name": "Anime", "group": "Language"},
@@ -25,12 +40,18 @@ AUTO_CATALOG_DEFINITIONS = [
     {"key": "kannada", "name": "Kannada", "group": "Language"},
     {"key": "japanese", "name": "Japanese", "group": "Language"},
     {"key": "korean", "name": "Korean", "group": "Language"},
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
     {"key": "top_rated", "name": "Top Rated", "group": "Smart"},
     {"key": "recently_added", "name": "Recently Added", "group": "Smart"},
 
     {"key": "netflix", "name": "Netflix", "group": "OTT"},
     {"key": "prime_video", "name": "Prime Video", "group": "OTT"},
+<<<<<<< HEAD
+    {"key": "apple_tv", "name": "Apple TV", "group": "OTT"},
+    {"key": "hulu", "name": "Hulu", "group": "OTT"},
+    {"key": "hbo", "name": "HBO", "group": "OTT"},
+=======
     {"key": "hotstar", "name": "Hotstar", "group": "OTT"},
     {"key": "apple_tv", "name": "Apple TV", "group": "OTT"},
     {"key": "hulu", "name": "Hulu", "group": "OTT"},
@@ -39,6 +60,7 @@ AUTO_CATALOG_DEFINITIONS = [
     {"key": "zee5", "name": "ZEE5", "group": "OTT"},
     {"key": "sonyliv", "name": "SonyLIV", "group": "OTT"},
     {"key": "mx_player", "name": "MX Player", "group": "OTT"},
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     {"key": "crunchyroll", "name": "Crunchyroll", "group": "OTT"},
 ]
 
@@ -204,6 +226,23 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     media_type = _media_type(doc)
     original_language = details.get("original_language") or doc.get("original_language") or ""
 
+<<<<<<< HEAD
+    genre_names = [g.get("name", "") for g in details.get("genres", []) or []]
+    genre_lower = {g.lower() for g in genre_names}
+    genre_ids = set()
+    for g in details.get("genres", []) or []:
+        if isinstance(g, dict) and g.get("id") is not None:
+            try:
+                genre_ids.add(int(g.get("id")))
+            except Exception:
+                pass
+
+    keyword_payload = details.get("keywords") or {}
+    keywords = keyword_payload.get("keywords") or keyword_payload.get("results") or []
+    keyword_names = {k.get("name", "").lower() for k in keywords if isinstance(k, dict)}
+
+=======
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     if doc.get("is_anime"):
         tags.add("Anime")
 
@@ -217,6 +256,31 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     for tag in _LANGUAGE_CATALOGS.get(original_language, []):
         tags.add(tag)
 
+<<<<<<< HEAD
+    if original_language == "ko" and media_type == "tv":
+        tags.add("K-Drama")
+
+    if original_language == "ja" and ("animation" in genre_lower or "anime" in keyword_names):
+        tags.add("Anime")
+
+    if "Cartoons" in enabled_names:
+        if "animation" in genre_lower and 16 in genre_ids:
+            if "Anime" not in tags:
+                tags.add("Cartoons")
+        else:
+            cartoon_kw = any(k in keyword_names for k in ("cartoon", "cartoons", "animated series", "animated show"))
+            if cartoon_kw and original_language != "ja" and "Anime" not in tags:
+                tags.add("Cartoons")
+
+    if "Novelas" in enabled_names:
+        if 10766 in genre_ids:
+            tags.add("Novelas")
+        else:
+            novela_kw = any(k in keyword_names for k in ("telenovela", "novela", "soap opera", "soap"))
+            if novela_kw:
+                tags.add("Novelas")
+
+=======
     if original_language == "hi" and ("IN" in origin_country or "IN" in production_countries or not origin_country):
         tags.add("Bollywood")
 
@@ -233,6 +297,7 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     if original_language == "ja" and ("animation" in genre_lower or "anime" in keyword_names):
         tags.add("Anime")
 
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     try:
         if float(doc.get("rating") or 0) >= 7.5:
             tags.add("Top Rated")
@@ -269,9 +334,15 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     }
 
 
+<<<<<<< HEAD
+_TMDB_FIND_CACHE: dict = {}
+_TMDB_DETAILS_CACHE: dict = {}
+_TMDB_PROVIDERS_CACHE: dict = {}
+=======
 _TMDB_FIND_CACHE = BoundedDict(500)
 _TMDB_DETAILS_CACHE = BoundedDict(300)
 _TMDB_PROVIDERS_CACHE = BoundedDict(300)
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 _TMDB_INFLIGHT: Dict[tuple, asyncio.Future] = {}
 
 

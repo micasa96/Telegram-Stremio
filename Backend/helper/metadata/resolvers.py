@@ -26,6 +26,19 @@ async def resolve_movie(
 
     # Explicit TMDB id
     if tmdb_id and force_tmdb:
+<<<<<<< HEAD
+        media_type_res = "movie" if default_id and str(default_id).lower().startswith("mv") else ("tv" if default_id and str(default_id).lower().startswith("tv") else None)
+        if media_type_res == "movie":
+            movie = await tmdb.details("movie", tmdb_id)
+            if movie:
+                return tmdb.build_movie_payload(movie, quality, encoded_string)
+        if media_type_res == "tv":
+            tv = await tmdb.details("tv", tmdb_id)
+            if tv:
+                ep = await tmdb.episode_details(tmdb_id, 1, 1)
+                return tmdb.build_tv_payload(tv, ep, 1, 1, quality, encoded_string)
+=======
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
         movie = await tmdb.details("movie", tmdb_id)
         if movie:
             return tmdb.build_movie_payload(movie, quality, encoded_string)
@@ -72,7 +85,11 @@ async def resolve_movie(
     return None
 
 
+<<<<<<< HEAD
+# ── Series: TMDB > TVDB > Cinemeta ────────────────────────────────────────────
+=======
 # ── Series: TVDB > Cinemeta > TMDB ────────────────────────────────────────────
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
 async def resolve_series(
     title: str,
@@ -87,11 +104,38 @@ async def resolve_series(
 
     # Explicit overrides skip the chain
     if tmdb_id and force_tmdb:
+<<<<<<< HEAD
+        media_type_res = "tv" if default_id and str(default_id).lower().startswith("tv") else ("movie" if default_id and str(default_id).lower().startswith("mv") else None)
+        if media_type_res == "movie":
+            movie = await tmdb.details("movie", tmdb_id)
+            if movie:
+                return tmdb.build_movie_payload(movie, quality, encoded_string)
+=======
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
         tv = await tmdb.details("tv", tmdb_id)
         if tv:
             ep = await tmdb.episode_details(tmdb_id, season, episode)
             return tmdb.build_tv_payload(tv, ep, season, episode, quality, encoded_string)
 
+<<<<<<< HEAD
+    # 1) TMDB first (priority)
+    if not tmdb_id and not explicit_imdb:
+        hit = await tmdb.safe_search(title, "tv", year)
+        if hit:
+            tmdb_id = hit.id
+    if tmdb_id and not explicit_imdb:
+        try:
+            tv = await tmdb.details("tv", tmdb_id)
+            if tv:
+                ep = await tmdb.episode_details(tmdb_id, season, episode)
+                if ep is not None or (season is not None and int(season) >= 0):
+                    LOGGER.info(f"[SERIES] TMDB hit for '{title}' S{int(season):02d}E{int(episode):02d}")
+                    return tmdb.build_tv_payload(tv, ep, season, episode, quality, encoded_string)
+        except Exception as e:
+            LOGGER.warning(f"[SERIES] TMDB error for '{title}': {e}")
+
+    # 2) TVDB
+=======
     if imdb_id and explicit_imdb:
         try:
             detail = await cinemeta.cached_detail(imdb_id, "tvSeries")
@@ -104,6 +148,7 @@ async def resolve_series(
             LOGGER.warning(f"Cinemeta explicit TV fetch failed [{imdb_id}]: {e}")
 
     # 1) TVDB
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     try:
         result = await tvdb.fetch_series_metadata(
             title, season, episode, encoded_string, year=year, quality=quality
@@ -114,8 +159,13 @@ async def resolve_series(
     except Exception as e:
         LOGGER.warning(f"[SERIES] TVDB error for '{title}': {e}")
 
+<<<<<<< HEAD
+    # 3) Cinemeta as fallback
+    LOGGER.info(f"[SERIES] TMDB/TVDB miss for '{title}' -> Cinemeta")
+=======
     # 2) Cinemeta
     LOGGER.info(f"[SERIES] TVDB miss for '{title}' -> Cinemeta")
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     if not imdb_id:
         imdb_id = await cinemeta.safe_search(title, "tvSeries", year)
     if imdb_id:
@@ -135,6 +185,18 @@ async def resolve_series(
         except Exception as e:
             LOGGER.warning(f"Cinemeta TV fetch failed [{title}]: {e}")
 
+<<<<<<< HEAD
+    if imdb_id and explicit_imdb:
+        try:
+            detail = await cinemeta.cached_detail(imdb_id, "tvSeries")
+            ep = await cinemeta.cached_season(imdb_id, season, episode)
+            if detail:
+                return cinemeta.build_tv_payload(
+                    detail, ep or {}, imdb_id, title, season, episode, quality, encoded_string
+                )
+        except Exception as e:
+            LOGGER.warning(f"Cinemeta explicit TV fallback failed [{imdb_id}]: {e}")
+=======
     # 3) TMDB
     LOGGER.info(f"[SERIES] Cinemeta miss for '{title}' -> TMDB")
     if not tmdb_id:
@@ -146,6 +208,7 @@ async def resolve_series(
         if tv:
             ep = await tmdb.episode_details(tmdb_id, season, episode)
             return tmdb.build_tv_payload(tv, ep, season, episode, quality, encoded_string)
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
     LOGGER.info(f"[SERIES] No metadata for '{title}' S{season:02d}E{episode:02d}")
     return None

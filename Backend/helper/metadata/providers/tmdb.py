@@ -115,6 +115,39 @@ async def raw_search(title: str, media_type: str, year: Optional[int]):
         return await client.search().tv(query=title)
 
 
+<<<<<<< HEAD
+async def raw_discover(media_type: str, page: int = 1, sort_by: str = "popularity.desc", with_genres: str = None, region: str = "US"):
+    api_key = tmdb_api_key()
+    if not api_key:
+        return []
+    import httpx
+
+    async with API_SEMAPHORE, httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        if media_type == "movie":
+            params = {"api_key": api_key, "page": page, "sort_by": sort_by, "region": region}
+            if with_genres:
+                params["with_genres"] = with_genres
+            try:
+                r = await client.get("https://api.themoviedb.org/3/discover/movie", params=params)
+                if r.status_code == 200:
+                    return (r.json() or {}).get("results") or []
+            except Exception:
+                return []
+            return []
+        params = {"api_key": api_key, "page": page, "sort_by": sort_by}
+        if with_genres:
+            params["with_genres"] = with_genres
+        try:
+            r = await client.get("https://api.themoviedb.org/3/discover/tv", params=params)
+            if r.status_code == 200:
+                return (r.json() or {}).get("results") or []
+        except Exception:
+            return []
+        return []
+
+
+=======
+>>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 async def _tmdb_alternative_titles(media_type: str, tmdb_id) -> list:
     if not tmdb_id:
         return []
