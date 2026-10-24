@@ -1,10 +1,7 @@
 """Main metadata entry point and /set candidate search."""
 from __future__ import annotations
 
-<<<<<<< HEAD
-=======
 import html
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 import traceback
 from typing import Optional
 
@@ -14,10 +11,7 @@ from Backend.helper.metadata.common import (
     ensure_media_ids,
     COMBINED_EPISODE_BASE,
     COMBINED_SEASON,
-<<<<<<< HEAD
-=======
     ID_REFS,
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     extract_default_id,
     format_imdb_images,
     format_tmdb_image,
@@ -54,19 +48,11 @@ def _is_anime_channel(channel) -> bool:
 
 
 def _resolve_default_id(override_id, filename) -> str | None:
-<<<<<<< HEAD
     for source in (override_id, filename, getattr(Backend, "USE_DEFAULT_ID", None)):
         if not source:
             continue
         try:
             found = extract_default_id(source)
-=======
-    for source in (override_id, getattr(Backend, "USE_DEFAULT_ID", None), filename):
-        if not source:
-            continue
-        try:
-            found = extract_default_id(source) or (override_id if source is override_id else None)
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
         except Exception:
             found = None
         if found:
@@ -317,22 +303,6 @@ async def _search_candidates(query: str, media_type: str, year: int | None = Non
     seen: set[tuple[str, str]] = set()
 
     try:
-        imdb_hits = await cinemeta.search_title_multi(query=query, type=imdb_type, limit=limit)
-        for hit in imdb_hits:
-            hid = hit.get("id")
-            if not hid or ("imdb", hid) in seen:
-                continue
-            seen.add(("imdb", hid))
-            images = format_imdb_images(hid)
-            results.append(_candidate_entry(
-                "imdb", hit.get("title", ""), hit.get("year", ""),
-                hid, None, hit.get("poster") or images["poster"], images["backdrop"],
-                "IMDb / Cinemeta", media_type,
-            ))
-    except Exception as e:
-        LOGGER.warning(f"IMDb {media_type} candidate search failed for '{query}': {e}")
-
-    try:
         tmdb_results = await tmdb.raw_search(query, media_type, year if media_type == "movie" else None)
         for item in (tmdb_results or [])[:limit]:
             tid = getattr(item, "id", None)
@@ -349,6 +319,22 @@ async def _search_candidates(query: str, media_type: str, year: int | None = Non
             ))
     except Exception as e:
         LOGGER.warning(f"TMDb {media_type} candidate search failed for '{query}': {e}")
+
+    try:
+        imdb_hits = await cinemeta.search_title_multi(query=query, type=imdb_type, limit=limit)
+        for hit in imdb_hits:
+            hid = hit.get("id")
+            if not hid or ("imdb", hid) in seen:
+                continue
+            seen.add(("imdb", hid))
+            images = format_imdb_images(hid)
+            results.append(_candidate_entry(
+                "imdb", hit.get("title", ""), hit.get("year", ""),
+                hid, None, hit.get("poster") or images["poster"], images["backdrop"],
+                "IMDb / Cinemeta", media_type,
+            ))
+    except Exception as e:
+        LOGGER.warning(f"IMDb {media_type} candidate search failed for '{query}': {e}")
 
     return results[:limit]
 
@@ -379,23 +365,9 @@ async def search_any_candidates(query: str, year: int | None = None, limit: int 
             seen.add(key)
             out.append(candidate)
         return out
-<<<<<<< HEAD
-    results = await search_tv_candidates(query, limit)
-    results += await search_movie_candidates(query, year, limit)
-    seen: set[tuple] = set()
-    out: list[dict] = []
-    for r in results:
-        key = (r.get("source"), r.get("imdb_id"), r.get("tmdb_id"), r.get("media_type"))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(r)
-    return out[:limit * 2]
-=======
     results = await search_movie_candidates(query, year, limit)
     results += await search_tv_candidates(query, limit)
     return results
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
 
 def build_id_link(imdb_id=None, tmdb_id=None, media_type: str = "movie") -> str | None:
@@ -414,17 +386,10 @@ def caption_with_id(caption: str, metadata_info: dict) -> str | None:
     )
     if not link:
         return None
-<<<<<<< HEAD
-    base = (caption or "").strip()
-    if extract_default_id(base):
-        return None
-    return f"{base}\n{link}" if base else link
-=======
     lines = (line.strip() for line in ID_REFS.sub("", caption or "").split("\n"))
     base = html.escape("\n".join(l for l in lines if l and l.upper() not in ("IMDB", "TMDB")), quote=False)
     tag = f'<a href="{link}">{"IMDB" if "imdb.com" in link else "TMDB"}</a>'
     return f"{base}\n{tag}" if base else tag
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
 
 def _to_selection_payload(data: dict, media_type: str) -> dict:

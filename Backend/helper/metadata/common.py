@@ -10,10 +10,7 @@ from urllib.parse import quote
 
 from rapidfuzz import fuzz
 
-<<<<<<< HEAD
-=======
 from Backend.helper.bounded import BoundedDict
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 from Backend.logger import LOGGER
 
 # Match thresholds
@@ -41,15 +38,6 @@ GRADIENT_COVER_BASE = "https://gradient-cover-api.vercel.app"
 API_SEMAPHORE = asyncio.Semaphore(12)
 
 # Shared caches (provider modules may also keep their own)
-<<<<<<< HEAD
-IMDB_CACHE: dict = {}
-TMDB_SEARCH_CACHE: dict = {}
-TMDB_DETAILS_CACHE: dict = {}
-EPISODE_CACHE: dict = {}
-ALT_TITLES_CACHE: dict = {}
-TVDB_CACHE: dict = {}
-KITSU_CACHE: dict = {}
-=======
 IMDB_CACHE = BoundedDict(300)
 TMDB_SEARCH_CACHE = BoundedDict(300)
 TMDB_DETAILS_CACHE = BoundedDict(300)
@@ -57,7 +45,6 @@ EPISODE_CACHE = BoundedDict(500)
 ALT_TITLES_CACHE = BoundedDict(300)
 TVDB_CACHE = BoundedDict(300)
 KITSU_CACHE = BoundedDict(300)
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 
 _INFLIGHT: Dict[tuple, asyncio.Future] = {}
 
@@ -315,8 +302,6 @@ def format_imdb_images(imdb_id: str) -> dict:
     }
 
 
-<<<<<<< HEAD
-=======
 ID_REFS = re.compile(r"(?:https?://)?(?:www\.|m\.)?(?:imdb\.com/title/tt\d+|themoviedb\.org/(?:movie|tv)/\d+)\S*|\btt\d{7,10}\b", re.I)
 
 
@@ -330,7 +315,6 @@ def caption_with_links(message) -> str:
     return "\n".join([getattr(message, "caption", None) or "", *urls])
 
 
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
 def extract_default_id(text: str) -> str | None:
     if not text:
         return None
@@ -343,12 +327,9 @@ def extract_default_id(text: str) -> str | None:
     tmdb_url = re.search(r"/(?:movie|tv)/(\d+)", text)
     if tmdb_url:
         return tmdb_url.group(1)
-<<<<<<< HEAD
     m = re.search(r"\b(tv|mv)(\d{1,10})\b", text, re.IGNORECASE)
     if m:
         return m.group(1).lower() + m.group(2)
-=======
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     return None
 
 
@@ -357,7 +338,6 @@ def split_default_id(default_id) -> tuple:
     if not default_id:
         return None, None, False, False
     value = str(default_id).strip()
-<<<<<<< HEAD
     vl = value.lower()
     if vl.startswith("tt"):
         return value, None, True, False
@@ -365,10 +345,6 @@ def split_default_id(default_id) -> tuple:
         return None, int(vl[2:]), False, True
     if vl.startswith("mv") and vl[2:].isdigit():
         return None, int(vl[2:]), False, True
-=======
-    if value.startswith("tt"):
-        return value, None, True, False
->>>>>>> c8e0b2406c9143f5bbff64d9b22b0649795266e4
     if value.isdigit():
         return None, int(value), False, True
     return None, None, False, False
