@@ -516,6 +516,7 @@ class ScanManager:
                 clean_filename(title), channel_int, msg_id,
                 override_id=extract_default_id(caption_with_links(message)),
                 diag=diag,
+                file_name=(file.file_name if file else None),
             )
         except Exception as e:
             LOGGER.warning(f"[ScanManager] Metadata exception for msg {msg_id}: {e}")

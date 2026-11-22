@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import re
 import traceback
 from typing import Optional
 
@@ -63,6 +64,47 @@ def _resolve_default_id(override_id, filename) -> str | None:
         if found:
             return found
     return None
+
+
+_ID_TOKEN_RE = re.compile(
+    r"(?i)\b(?:tt\d{7,10}|tv\d{1,10}|mv\d{1,10}|tmdb[_ ]?id\s*[:=]\s*\d{1,10})\b"
+)
+_QUALITY_TOKEN_RE = re.compile(r"(?i)\b(?:2160p|1440p|1080p|720p|576p|480p|360p|4k|uhd)\b")
+_VIDEO_EXT_RE = re.compile(r"(?i)\.(?:mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts|mpg|mpeg)\b")
+_EXT_WORD_RE = re.compile(r"(?i)\b(?:mkv|mp4|avi|m4v|mov|wmv|webm|flv|m2ts|mpg|mpeg|ts)\b")
+_NOISE_WORD_RE = re.compile(r"(?i)\b(?:imdb|tmdb)\b")
+_SXXEXX_RE = re.compile(r"(?i)\bS\d{1,3}\s*E\d{1,4}\b")
+_TRAILING_EXT_RE = re.compile(r"(?i)\s+(?:mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts|mpg|mpeg)\s*$")
+_LEADING_NOISE = {
+    "spanish", "latino", "latina", "castellano", "english", "ingles", "inglés",
+    "dual", "multi", "subtitulado", "esub", "sub", "vip", "hdlatino", "imdb", "tmdb",
+}
+
+
+def _sanitize_search_title(title: str) -> str:
+    """Remove ids, quality, episode and language noise from the search title.
+
+    Captions like "1080p.Spanish,tv297768.Camino.a.Arcadia.S01E02.mp4" must search
+    for "Camino a Arcadia", not for the whole raw string.
+    """
+    value = (title or "").replace("_", " ")
+    # Dotted file names without spaces: treat dots as separators.
+    if " " not in value and "." in value:
+        value = value.replace(".", " ")
+
+    value = _VIDEO_EXT_RE.sub(" ", value)
+    value = _EXT_WORD_RE.sub(" ", value)
+    value = _SXXEXX_RE.sub(" ", value)
+    value = _ID_TOKEN_RE.sub(" ", value)
+    value = _QUALITY_TOKEN_RE.sub(" ", value)
+    value = _NOISE_WORD_RE.sub(" ", value)
+    value = re.sub(r"\s+", " ", value).strip(" .,-_[]()")
+    value = _TRAILING_EXT_RE.sub("", value)
+
+    words = value.split()
+    while words and words[0].lower().strip(",.;:-") in _LEADING_NOISE:
+        words.pop(0)
+    return " ".join(words).strip(" .,-_[]()")
 
 
 async def metadata(
@@ -187,12 +229,18 @@ async def metadata(
             absolute = True
             parsed["episode"] = abs_ep
 
+    # An explicit id (tt…, tv…, mv…, tmdbid=…) is enough to resolve a title even
+    # when the caption has no readable name ("1080p.S3E4.mkv.IMDB").
+    default_id = _resolve_default_id(override_id, f"{filename}\n{file_name or ''}")
+
     if not quality:
         LOGGER.warning(f"Skipping {filename}: No resolution (parsed={parsed})")
         return _fail("no_quality")
-    if not title:
+    if not title and not default_id:
         LOGGER.info(f"No title parsed from: {filename} (parsed={parsed})")
         return _fail("no_title")
+
+    title = title or ""
 
     # Strip absolute episode / release-group noise from the search title so
     # "One Piece - 1172" does not match "One Piece Egghead Arc Recap".
@@ -201,7 +249,8 @@ async def metadata(
     else:
         title = clean_anime_search_title(title, None)
 
-    default_id = _resolve_default_id(override_id, filename)
+    # Drop ids / quality / language noise the caption may carry.
+    title = _sanitize_search_title(title)
 
     try:
         encoded_string = await encode_string({"chat_id": channel, "msg_id": msg_id})

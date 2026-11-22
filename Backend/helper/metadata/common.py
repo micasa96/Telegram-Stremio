@@ -327,6 +327,9 @@ def extract_default_id(text: str) -> str | None:
     tmdb_url = re.search(r"/(?:movie|tv)/(\d+)", text)
     if tmdb_url:
         return tmdb_url.group(1)
+    explicit_tmdb = re.search(r"(?i)\btmdb[_ ]?id\s*[:=]\s*(\d{1,10})\b", text)
+    if explicit_tmdb:
+        return explicit_tmdb.group(1)
     m = re.search(r"\b(tv|mv)(\d{1,10})\b", text, re.IGNORECASE)
     if m:
         return m.group(1).lower() + m.group(2)
