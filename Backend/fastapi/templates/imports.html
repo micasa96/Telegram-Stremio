@@ -295,7 +295,15 @@
       .replace(/\s+/g, ' ')
       .trim();
 
-    return { query: q || raw, isTv: !!se, season, episode };
+    return { query: q || raw, isTv: !!se, season, episode, quality: detectQuality(raw) };
+  }
+
+  function detectQuality(text) {
+    const m = String(text || '').match(/\b(2160p|1440p|1080p|720p|576p|480p|360p)\b/i);
+    if (m) return m[1].toLowerCase();
+    if (/\b(4k|uhd)\b/i.test(text)) return '2160p';
+    if (/\bfhd\b/i.test(text)) return '1080p';
+    return '';
   }
 
   window.openMap = function (btn) {
@@ -303,11 +311,12 @@
     const label = btn.dataset.label || '';
     currentId = id;
     selectedId = null;
-    mapQuality = btn.dataset.quality || '';
-    document.getElementById('map-quality').value = mapQuality;
     document.getElementById('map-file').textContent = label;
 
     const parsed = parseMapLabel(label);
+    // The saved quality wins; otherwise take the one declared in the file name.
+    mapQuality = btn.dataset.quality || parsed.quality || '';
+    document.getElementById('map-quality').value = mapQuality;
     document.getElementById('map-query').value = parsed.query;
     document.getElementById('map-type').value = parsed.isTv ? 'tv' : 'movie';
     document.getElementById('map-results').innerHTML = '';
