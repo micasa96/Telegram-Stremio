@@ -26,6 +26,7 @@ AUTO_CATALOG_DEFINITIONS = [
 
     {"key": "top_rated", "name": "Top Rated", "group": "Smart"},
     {"key": "latest_releases", "name": "Latest Releases", "group": "Smart"},
+    {"key": "recently_added", "name": "Recently Added", "group": "Smart"},
 
     {"key": "netflix", "name": "Netflix", "group": "OTT"},
     {"key": "prime_video", "name": "Prime Video", "group": "OTT"},
@@ -97,9 +98,10 @@ def _doc_item(doc: dict) -> dict:
     }
 
 
-RECENT = "Latest Releases"
-# "Latest Releases" is the newest N titles by upload date, not a release-year tag.
-RECENT_LIMIT = 60
+RECENT = "Latest Releases"          # by release year
+ADDED = "Recently Added"            # newest uploads, bounded
+# "Recently Added" keeps only the newest uploads so it never mirrors the library.
+ADDED_LIMIT = 60
 _LEGACY_RECENT = "Recently Added"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -196,17 +198,13 @@ async def _settings_state(db) -> dict:
     state = await col.find_one({"_id": "auto_catalog_settings"}) or {}
     if state.get("latest_releases_default"):
         return state
-    keys = {"latest_releases" if k == "recently_added" else k for k in (state.get("enabled_keys") or [])}
+    keys = set(state.get("enabled_keys") or [])
     keys.add("latest_releases")
     state = {**state, "enabled_keys": sorted(keys), "latest_releases_default": True}
     await col.update_one(
         {"_id": "auto_catalog_settings"},
         {"$set": {"enabled_keys": state["enabled_keys"], "latest_releases_default": True}},
         upsert=True,
-    )
-    await db.dbs["tracking"]["custom_catalogs"].update_one(
-        {"auto_key": "auto_recently_added"},
-        {"$set": {"auto_key": "auto_latest_releases", "name": RECENT}},
     )
     return state
 
@@ -305,11 +303,18 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     except Exception:
         pass
 
-    # "Latest Releases" means recently ADDED to the library, not recently
-    # released. Every title is eligible; the catalog keeps only the newest
-    # RECENT_LIMIT entries ordered by upload date (see _rebuild_auto_catalogs).
+    # Latest Releases = recently RELEASED (by year).
+    if doc.get("release_year"):
+        try:
+            if int(doc.get("release_year")) >= datetime.utcnow().year - 1:
+                tags.add(RECENT)
+        except Exception:
+            pass
+
+    # Recently Added = recently UPLOADED to the library. Every title is
+    # eligible; the catalog keeps only the newest ADDED_LIMIT by upload date.
     if doc.get("updated_on"):
-        tags.add(RECENT)
+        tags.add(ADDED)
 
     provider_names = _extract_provider_names(watch_data)
     if provider_names:
@@ -612,14 +617,14 @@ async def _rebuild_auto_catalogs(db, catalog_items: Dict[str, List[dict]], enabl
             seen.add(key)
             unique_items.append(item)
 
-        if name == RECENT:
+        if name == ADDED:
             # Newest uploads first, capped so the catalog never becomes the
             # whole library.
             unique_items.sort(
                 key=lambda it: it.get("updated_on") or it.get("added_at") or datetime.min,
                 reverse=True,
             )
-            unique_items = unique_items[:RECENT_LIMIT]
+            unique_items = unique_items[:ADDED_LIMIT]
         else:
             unique_items.sort(key=catalog_sort_key, reverse=True)
 
