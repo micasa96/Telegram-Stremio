@@ -30,8 +30,13 @@ async def resolve_movie(
         if movie:
             return tmdb.build_movie_payload(movie, quality, encoded_string)
 
-    # Explicit IMDb id → Cinemeta
+    # Explicit IMDb id → TMDB first (Spanish metadata), then Cinemeta
     if imdb_id and explicit_imdb:
+        mapped_tmdb = await tmdb.find_by_imdb(imdb_id, "movie")
+        if mapped_tmdb:
+            movie = await tmdb.details("movie", mapped_tmdb)
+            if movie:
+                return tmdb.build_movie_payload(movie, quality, encoded_string)
         try:
             detail = await cinemeta.cached_detail(imdb_id, "movie")
             if detail:
@@ -93,6 +98,12 @@ async def resolve_series(
             return tmdb.build_tv_payload(tv, ep, season, episode, quality, encoded_string)
 
     if imdb_id and explicit_imdb:
+        mapped_tmdb = await tmdb.find_by_imdb(imdb_id, "tv")
+        if mapped_tmdb:
+            tv = await tmdb.details("tv", mapped_tmdb)
+            if tv:
+                ep = await tmdb.episode_details(mapped_tmdb, season, episode)
+                return tmdb.build_tv_payload(tv, ep, season, episode, quality, encoded_string)
         try:
             detail = await cinemeta.cached_detail(imdb_id, "tvSeries")
             ep = await cinemeta.cached_season(imdb_id, season, episode)

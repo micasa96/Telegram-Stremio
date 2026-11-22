@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import httpx
 from themoviedb import aioTMDb
 
 from Backend.config import Telegram
@@ -253,6 +254,39 @@ async def external_imdb_id(media_type: str, tmdb_id) -> str | None:
         return getattr(ext, "imdb_id", None) if ext else None
     except Exception:
         return None
+
+
+async def find_by_imdb(imdb_id: str, media_type: str) -> Optional[int]:
+    """Map an IMDb id to a TMDB id so metadata can come from TMDB (es-MX).
+
+    Uses the raw REST endpoint instead of the client so it works across
+    `themoviedb` package versions.
+    """
+    api_key = tmdb_api_key()
+    if not api_key or not imdb_id:
+        return None
+
+    cache_key = f"tmdb_find::{media_type}::{imdb_id}"
+
+    async def _produce():
+        try:
+            async with API_SEMAPHORE, httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://api.themoviedb.org/3/find/{imdb_id}",
+                    params={"api_key": api_key, "external_source": "imdb_id"},
+                )
+            if resp.status_code != 200:
+                return None
+            data = resp.json() or {}
+            key = "tv_results" if media_type != "movie" else "movie_results"
+            results = data.get(key) or []
+            if results and results[0].get("id"):
+                return int(results[0]["id"])
+        except Exception as e:
+            LOGGER.warning(f"TMDb find failed for {imdb_id}: {e}")
+        return None
+
+    return await cached_call(TMDB_SEARCH_CACHE, cache_key, "tmdb_find", _produce)
 
 
 def build_movie_payload(movie, quality, encoded_string) -> dict:

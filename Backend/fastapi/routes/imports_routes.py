@@ -6,7 +6,9 @@ metadata -> insert_media pipeline against the original Telegram message.
 """
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -236,6 +238,100 @@ async def list_imports(
         page_size=page_size,
         search=search.strip(),
     )
+
+
+#----- Bulk retry of every pending import (runs in the background)
+_retry_state: dict = {
+    "running": False,
+    "cancel": False,
+    "total": 0,
+    "processed": 0,
+    "fixed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "started_at": 0.0,
+    "finished_at": 0.0,
+    "error": None,
+}
+
+
+@router.get("/retry-all/status")
+async def retry_all_status():
+    return {"status": dict(_retry_state)}
+
+
+@router.post("/retry-all")
+async def retry_all(request: Request):
+    if _retry_state["running"]:
+        return {"ok": False, "message": "A retry is already running.", "status": dict(_retry_state)}
+    _retry_state.update({
+        "running": True, "cancel": False, "total": 0, "processed": 0,
+        "fixed": 0, "failed": 0, "skipped": 0,
+        "started_at": time.time(), "finished_at": 0.0, "error": None,
+    })
+    asyncio.create_task(_run_retry_all(_current_user(request)))
+    return {"ok": True, "message": "Retry started in the background.", "status": dict(_retry_state)}
+
+
+@router.post("/retry-all/cancel")
+async def retry_all_cancel():
+    if not _retry_state["running"]:
+        return {"ok": False, "message": "No retry is running."}
+    _retry_state["cancel"] = True
+    return {"ok": True, "message": "Stopping after the current item."}
+
+
+async def _run_retry_all(actor: str) -> None:
+    try:
+        ids = await failed_imports.list_pending_ids()
+        _retry_state["total"] = len(ids)
+        seen_groups: set = set()
+
+        for item_id in ids:
+            if _retry_state["cancel"]:
+                break
+            item = await failed_imports.get_item(item_id)
+            if not item or item.get("status") != "pending":
+                _retry_state["skipped"] += 1
+                continue
+
+            # One pass per split file: the repair marks every sibling at once.
+            group = _item_part_base(item) or item_id
+            if group in seen_groups:
+                _retry_state["skipped"] += 1
+                continue
+            seen_groups.add(group)
+
+            try:
+                result = await _repair_parts(
+                    item,
+                    selected_id=None,
+                    media_type="movie",
+                    season=None,
+                    quality=_normalize_quality(item.get("quality")),
+                    actor=actor,
+                )
+                if result.get("ok"):
+                    _retry_state["fixed"] += 1
+                else:
+                    _retry_state["failed"] += 1
+            except Exception as e:
+                _retry_state["failed"] += 1
+                LOGGER.warning(f"[imports] bulk retry failed for {item_id}: {e}")
+
+            _retry_state["processed"] += 1
+            await asyncio.sleep(0.15)
+    except Exception as e:
+        _retry_state["error"] = str(e)
+        LOGGER.error(f"[imports] bulk retry crashed: {e}")
+    finally:
+        _retry_state["running"] = False
+        _retry_state["cancel"] = False
+        _retry_state["finished_at"] = time.time()
+        LOGGER.info(
+            f"[imports] bulk retry finished — fixed {_retry_state['fixed']}, "
+            f"failed {_retry_state['failed']}, processed {_retry_state['processed']}"
+        )
 
 
 #----- Parts that belong to the same file (UI grouping)

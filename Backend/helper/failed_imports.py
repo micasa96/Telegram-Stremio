@@ -142,6 +142,14 @@ async def get_item(item_id: str) -> Optional[Dict[str, Any]]:
     return _ensure_part_identity(_serialize(doc)) if doc else None
 
 
+async def list_pending_ids() -> list[str]:
+    """Ids of every pending failed import (oldest first)."""
+    return [
+        str(doc["_id"])
+        async for doc in _coll().find({"status": "pending"}, {"_id": 1}).sort("created_at", 1)
+    ]
+
+
 async def list_siblings(chat_id, part_base: str) -> list[Dict[str, Any]]:
     """Every failed-import row that belongs to the same split file.
 

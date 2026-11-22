@@ -14,7 +14,7 @@
           Files that could not be indexed automatically. Search the correct title and map the file to it.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <select id="status-filter" class="field px-3 py-2 text-sm">
           <option value="pending">Pending</option>
           <option value="fixed">Fixed</option>
@@ -25,8 +25,12 @@
         <button class="btn-ghost px-4 py-2 text-sm" onclick="loadImports()">
           <i class="fa-solid fa-rotate"></i> Refresh
         </button>
+        <button id="retry-all-btn" class="btn-primary px-4 py-2 text-sm" onclick="retryAllPending()">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Retry all pending
+        </button>
       </div>
     </div>
+    <p id="retry-all-status" class="text-xs text-text-secondary mt-3"></p>
   </div>
 
   <div id="imports-list" class="space-y-3"></div>
@@ -498,6 +502,56 @@
     }
   };
 
+  let retryPoll = null;
+
+  function renderRetryStatus(s) {
+    const el = document.getElementById('retry-all-status');
+    const btn = document.getElementById('retry-all-btn');
+    if (!el) return;
+    if (s && s.running) {
+      el.textContent = `Retrying ${s.processed || 0}/${s.total || 0} · fixed ${s.fixed || 0} · failed ${s.failed || 0}`;
+      if (btn) btn.disabled = true;
+    } else if (s && s.finished_at) {
+      el.textContent = `Last retry: ${s.fixed || 0} fixed · ${s.failed || 0} still pending`;
+      if (btn) btn.disabled = false;
+    } else {
+      el.textContent = '';
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function pollRetry() {
+    try {
+      const res = await fetch('/api/admin/imports/retry-all/status');
+      const data = await res.json();
+      const s = data.status || {};
+      renderRetryStatus(s);
+      if (!s.running && retryPoll) {
+        clearInterval(retryPoll);
+        retryPoll = null;
+        loadImports();
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function startRetryPoll() {
+    if (retryPoll) return;
+    pollRetry();
+    retryPoll = setInterval(pollRetry, 2500);
+  }
+
+  window.retryAllPending = async function () {
+    if (!confirm('Retry every pending import with the current rules?\n\nIt runs in the background and can take a while. Already fixed items are skipped.')) return;
+    try {
+      const res = await fetch('/api/admin/imports/retry-all', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      showToast(data.message || 'Retry started.', data.ok ? 'success' : 'error', 'Imports');
+      startRetryPoll();
+    } catch (e) {
+      showToast('Network error.', 'error', 'Error');
+    }
+  };
+
   document.getElementById('status-filter').addEventListener('change', function () { page = 1; loadImports(); });
   document.getElementById('search-input').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { page = 1; loadImports(); }
@@ -510,6 +564,7 @@
   });
 
   loadImports();
+  pollRetry();
 })();
 </script>
 {% endblock %}
