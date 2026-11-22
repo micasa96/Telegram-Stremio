@@ -98,6 +98,8 @@ def _doc_item(doc: dict) -> dict:
 
 
 RECENT = "Latest Releases"
+# "Latest Releases" is the newest N titles by upload date, not a release-year tag.
+RECENT_LIMIT = 60
 _LEGACY_RECENT = "Recently Added"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -303,12 +305,11 @@ def classify_media_from_tmdb(doc: dict, details: dict, watch_data: dict, enabled
     except Exception:
         pass
 
-    if doc.get("release_year"):
-        try:
-            if int(doc.get("release_year")) >= datetime.utcnow().year - 1:
-                tags.add(RECENT)
-        except Exception:
-            pass
+    # "Latest Releases" means recently ADDED to the library, not recently
+    # released. Every title is eligible; the catalog keeps only the newest
+    # RECENT_LIMIT entries ordered by upload date (see _rebuild_auto_catalogs).
+    if doc.get("updated_on"):
+        tags.add(RECENT)
 
     provider_names = _extract_provider_names(watch_data)
     if provider_names:
