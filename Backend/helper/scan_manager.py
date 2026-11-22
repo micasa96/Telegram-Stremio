@@ -398,6 +398,8 @@ class ScanManager:
 
             if to_process:
                 s["counters"]["total_found"] += len(to_process)
+                # Move the cursor as messages are processed so the UI shows live progress
+                s["current_id"] = current
                 sem = asyncio.Semaphore(SCAN_PROCESS_CONCURRENCY)
 
                 async def _worker(msg):
@@ -406,6 +408,11 @@ class ScanManager:
                             return
                         await self._process_message(client, msg, chat_id)
                         s["counters"]["processed"] += 1
+                        try:
+                            if int(msg.id) > int(s.get("current_id") or 0):
+                                s["current_id"] = msg.id
+                        except (TypeError, ValueError):
+                            pass
 
                 await asyncio.gather(*(_worker(m) for m in to_process))
 

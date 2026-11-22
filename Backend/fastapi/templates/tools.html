@@ -853,11 +853,11 @@ function renderScan(s) {
             bar.classList.remove('indeterminate');
             bar.style.width = (s.progress || 0) + '%';
             document.getElementById('scan-current').textContent =
-                `Scanning ${name} · ${s.current_id}/${s.current_target_id} (${s.progress || 0}%)`;
+                `Scanning ${name} · ${c.processed || 0} processed · ${s.current_id}/${s.current_target_id} (${s.progress || 0}%)`;
         } else {
             bar.classList.add('indeterminate');
             document.getElementById('scan-current').textContent =
-                `Scanning ${name}` + (s.current_id ? ` · up to msg #${s.current_id}` : '');
+                `Scanning ${name} · ${c.processed || 0} processed` + (s.current_id ? ` · msg #${s.current_id}` : '');
         }
         startBtn.disabled = true; rescanBtn.disabled = true; cancelBtn.disabled = false; abortBtn.disabled = false;
         errEl.style.display = 'none';
