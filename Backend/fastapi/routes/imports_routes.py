@@ -143,7 +143,9 @@ async def _repair_parts(
             file_name=file_name or None,
         )
         if not info:
-            failed.append({"id": target.get("id"), "reason": diag.get("reason") or "metadata_failed"})
+            reason = diag.get("reason") or "metadata_failed"
+            failed.append({"id": target.get("id"), "reason": reason})
+            await failed_imports.set_reason(target["id"], reason)
             await failed_imports.set_status(target["id"], "pending")
             continue
 

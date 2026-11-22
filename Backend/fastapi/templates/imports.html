@@ -204,7 +204,12 @@
         const pending = g.items.filter(function (i) { return i.status === 'pending'; });
         const lead = pending.length ? pending[0] : g.items[0];
         const label = lead.file_name || lead.caption || '';
-        const canMap = pending.length > 0;
+        const isPending = pending.length > 0;
+        // Show only the action that matches the failure: a missing quality can't
+        // be fixed by mapping a title, and vice versa.
+        const isQualityIssue = (lead.reason === 'no_quality');
+        const canMap = isPending && !isQualityIssue;
+        const canQuality = isPending && isQualityIssue;
 
         const nums = g.items.map(function (i) { return i.part_number || 0; }).filter(Boolean);
         const missing = [];
@@ -252,10 +257,10 @@
               ${canMap ? `<button class="btn-primary px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openMap(this)">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> ${g.items.length > 1 ? 'Map file' : 'Map'}
               </button>` : ''}
-              ${canMap ? `<button class="btn-ghost px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openQuality(this)">
+              ${canQuality ? `<button class="btn-ghost px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openQuality(this)">
                 <i class="fa-solid fa-gauge-high"></i> ${lead.quality ? 'Change quality' : 'Add quality'}
               </button>` : ''}
-              ${canMap ? `<button class="btn-ghost px-3 py-2 text-xs" data-id="${esc(lead.id)}" onclick="ignoreImport(this)">Ignore</button>` : ''}
+              ${isPending ? `<button class="btn-ghost px-3 py-2 text-xs" data-id="${esc(lead.id)}" onclick="ignoreImport(this)">Ignore</button>` : ''}
             </div>
           </div>
         </div>`;

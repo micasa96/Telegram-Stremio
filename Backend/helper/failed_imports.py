@@ -184,6 +184,19 @@ async def set_quality(item_id: str, quality: str) -> bool:
     return res.matched_count > 0
 
 
+async def set_reason(item_id: str, reason: str) -> bool:
+    """Keep the failure reason current so the UI shows the right action button."""
+    try:
+        oid = ObjectId(item_id)
+    except Exception:
+        return False
+    res = await _coll().update_one(
+        {"_id": oid},
+        {"$set": {"reason": reason, "updated_at": time.time()}},
+    )
+    return res.matched_count > 0
+
+
 async def set_status(
     item_id: str,
     status: str,
