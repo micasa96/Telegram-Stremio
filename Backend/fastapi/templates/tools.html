@@ -307,8 +307,11 @@
             <button class="btn btn-warning" id="rescan-btn" onclick="confirmRescan()">
                 <i class="fa-solid fa-arrows-rotate"></i> Rescan (wipe & re-index)
             </button>
-            <button class="btn btn-danger" id="scan-cancel-btn" onclick="cancelScan()" disabled>
-                <i class="fa-solid fa-stop"></i> Stop
+            <button class="btn btn-danger" id="scan-cancel-btn" onclick="cancelScan()" disabled title="Stop after the current batch (resumable)">
+                <i class="fa-solid fa-pause"></i> Pause
+            </button>
+            <button class="btn btn-danger" id="scan-abort-btn" onclick="abortScan()" disabled title="Cancel and discard the pending channels">
+                <i class="fa-solid fa-xmark"></i> Cancel
             </button>
         </div>
         <p class="hint mt-3" id="scan-error" style="color:var(--danger);display:none"></p>
@@ -793,6 +796,18 @@ async function cancelScan() {
     }
 }
 
+async function abortScan() {
+    if (!confirm('Cancel this scan and discard the pending channels?\n\nYou can start a different scan right after.')) return;
+    try {
+        const res = await fetch('/api/admin/tools/scan/abort', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message || 'Scan cancelled.', data.ok ? 'success' : 'error', 'Scanner');
+        await pollScan();
+    } catch (e) {
+        showToast('Network error.', 'error', 'Error');
+    }
+}
+
 function startScanPolling() {
     if (scanTimer) clearInterval(scanTimer);
     pollScan();
@@ -827,6 +842,7 @@ function renderScan(s) {
     const bar = document.getElementById('scan-bar');
     const startBtn = document.getElementById('scan-start-btn');
     const cancelBtn = document.getElementById('scan-cancel-btn');
+    const abortBtn = document.getElementById('scan-abort-btn');
     const rescanBtn = document.getElementById('rescan-btn');
     const startLabel = document.getElementById('scan-start-label');
     const errEl = document.getElementById('scan-error');
@@ -843,11 +859,12 @@ function renderScan(s) {
             document.getElementById('scan-current').textContent =
                 `Scanning ${name}` + (s.current_id ? ` · up to msg #${s.current_id}` : '');
         }
-        startBtn.disabled = true; rescanBtn.disabled = true; cancelBtn.disabled = false;
+        startBtn.disabled = true; rescanBtn.disabled = true; cancelBtn.disabled = false; abortBtn.disabled = false;
         errEl.style.display = 'none';
     } else {
         bar.classList.remove('indeterminate');
         startBtn.disabled = false; rescanBtn.disabled = false; cancelBtn.disabled = true;
+        abortBtn.disabled = !s.resumable;
 
         if (s.resumable) {
             startLabel.textContent = 'Resume Scan';

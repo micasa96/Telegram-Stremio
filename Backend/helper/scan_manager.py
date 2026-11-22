@@ -252,6 +252,31 @@ class ScanManager:
         self._cancel = True
         return {"ok": True, "message": "Stop requested — the scan will pause after the current batch."}
 
+    async def abort(self) -> Dict[str, Any]:
+        """Stop the scan and drop the pending queue so a different one can start.
+
+        `cancel()` only pauses (resumable); this discards the previous job.
+        """
+        task = self._task
+        self._cancel = True
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        async with self._lock:
+            self._task = None
+            self._cancel = False
+            self.state = self._blank_state()
+            await self._persist()
+
+        LOGGER.info("[ScanManager] Scan aborted and queue cleared by user.")
+        return {"ok": True, "message": "Scan cancelled and queue cleared.", "status": self.get_status()}
+
     async def _run(self, client) -> None:
         try:
             while self.state["pending"] and not self._cancel:

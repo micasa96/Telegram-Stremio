@@ -19,6 +19,7 @@ from Backend.fastapi.routes.api_routes import (
     cancel_dbcheck_api,
     cancel_duplicate_check_api,
     cancel_scan_api,
+    abort_scan_api,
     clear_cache_api,
     clear_stream_analytics_api,
     create_custom_catalog_api,
@@ -889,6 +890,10 @@ async def tools_scan_start(payload: dict, _: bool = Depends(require_auth)):
 @app.post("/api/admin/tools/scan/cancel")
 async def tools_scan_cancel(_: bool = Depends(require_auth)):
     return await cancel_scan_api()
+
+@app.post("/api/admin/tools/scan/abort")
+async def tools_scan_abort(_: bool = Depends(require_auth)):
+    return await abort_scan_api()
 
 @app.get("/api/admin/tools/scan/status")
 async def tools_scan_status(_: bool = Depends(require_auth)):

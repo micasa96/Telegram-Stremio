@@ -2309,6 +2309,11 @@ async def cancel_scan_api() -> dict:
     return {"status": "success" if result.get("ok") else "error", **result}
 
 
+async def abort_scan_api() -> dict:
+    result = await scan_manager.abort()
+    return {"status": "success" if result.get("ok") else "error", **result}
+
+
 async def scan_status_api() -> dict:
     return {"status": "success", "data": scan_manager.get_status()}
 
