@@ -155,25 +155,33 @@ async def metadata(
     # the filename still takes precedence so rescans stay deterministic.
     quality = parsed.get("quality") or quality_override
 
-    # Captions of later parts often drop the quality (and sometimes season/year).
-    # The file name still has it, so use it to fill whatever the caption missed.
+    # The file name is stable for split parts; the caption often carries the
+    # quality. Parse BOTH and fill whatever the primary parse missed.
+    extra_sources: list[str] = []
+    if filename:
+        caption_target = strip_part_suffix(filename.strip()) if part else filename.strip()
+        if caption_target and caption_target != parse_target:
+            extra_sources.append(caption_target)
     if file_name:
-        fb_target = strip_part_suffix(file_name.strip())
-        if fb_target and fb_target != parse_target:
-            try:
-                fallback = parse_media_name(fb_target)
-            except Exception:
-                fallback = {}
-            if not quality:
-                quality = fallback.get("quality")
-            if season is None:
-                season = fallback.get("season")
-            if episode is None:
-                episode = fallback.get("episode")
-            if year is None:
-                year = fallback.get("year")
-            if not title:
-                title = fallback.get("title")
+        name_target = strip_part_suffix(file_name.strip())
+        if name_target and name_target != parse_target and name_target not in extra_sources:
+            extra_sources.append(name_target)
+
+    for extra in extra_sources:
+        try:
+            fallback = parse_media_name(extra)
+        except Exception:
+            continue
+        if not quality:
+            quality = fallback.get("quality")
+        if season is None:
+            season = fallback.get("season")
+        if episode is None:
+            episode = fallback.get("episode")
+        if year is None:
+            year = fallback.get("year")
+        if not title:
+            title = fallback.get("title")
 
     if season_hint is not None and episode and not season and not isinstance(episode, list):
         season = season_hint
