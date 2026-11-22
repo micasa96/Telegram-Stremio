@@ -612,7 +612,16 @@ async def _rebuild_auto_catalogs(db, catalog_items: Dict[str, List[dict]], enabl
             seen.add(key)
             unique_items.append(item)
 
-        unique_items.sort(key=catalog_sort_key, reverse=True)
+        if name == RECENT:
+            # Newest uploads first, capped so the catalog never becomes the
+            # whole library.
+            unique_items.sort(
+                key=lambda it: it.get("updated_on") or it.get("added_at") or datetime.min,
+                reverse=True,
+            )
+            unique_items = unique_items[:RECENT_LIMIT]
+        else:
+            unique_items.sort(key=catalog_sort_key, reverse=True)
 
         await collection.update_one(
             {"auto_key": _catalog_key(name)},
