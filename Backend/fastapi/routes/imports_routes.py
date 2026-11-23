@@ -84,6 +84,15 @@ def _normalize_selected(selected: str, media_type: str) -> str:
     return value
 
 
+_SXXEXX_RE = re.compile(r"(?i)\bS\d{1,3}\s*E\d{1,4}\b")
+
+
+def _infer_media_type(item: dict) -> str | None:
+    """Guess the type from the file when the caller did not pick one."""
+    label = (item.get("file_name") or item.get("caption") or "")
+    return "tv" if _SXXEXX_RE.search(label) else None
+
+
 def _item_part_base(item: dict) -> str:
     base = (item.get("part_base") or "").strip()
     if base:
@@ -143,6 +152,7 @@ async def _repair_parts(
             quality_override=quality or None,
             diag=diag,
             file_name=file_name or None,
+            media_type=media_type,
         )
         if not info:
             reason = diag.get("reason") or "metadata_failed"
@@ -306,7 +316,7 @@ async def _run_retry_all(actor: str) -> None:
                 result = await _repair_parts(
                     item,
                     selected_id=None,
-                    media_type="movie",
+                    media_type=_infer_media_type(item),
                     season=None,
                     quality=_normalize_quality(item.get("quality")),
                     actor=actor,
@@ -451,7 +461,7 @@ async def set_import_quality(item_id: str, body: QualityBody, request: Request):
         result = await _repair_parts(
             item,
             selected_id=None,
-            media_type="movie",
+            media_type=_infer_media_type(item),
             season=None,
             quality=quality,
             actor=_current_user(request),

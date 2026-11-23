@@ -116,6 +116,7 @@ async def metadata(
     quality_override: str = None,
     diag: dict = None,
     file_name: str = None,
+    media_type: str = None,
 ) -> dict | None:
     def _fail(reason: str):
         if diag is not None:
@@ -279,9 +280,18 @@ async def metadata(
     anime_channel = _is_anime_channel(channel)
 
     try:
-        # TV path: classic SxxExx, or absolute/orphan episode on anime channels
+        # TV path: classic SxxExx, an explicit type picked in the UI, or an
+        # absolute/orphan episode on anime channels.
         is_tv = bool(season and episode) or (absolute and episode and anime_channel)
+        if media_type:
+            is_tv = str(media_type).lower() in ("tv", "series")
         if is_tv:
+            # A forced TV mapping may not carry S/E in the name; default to S01E01
+            # instead of falling into the movie path.
+            if season is None:
+                season = 1
+            if episode is None:
+                episode = 1
             if absolute:
                 LOGGER.info(f"Fetching TV metadata (absolute): {title} E{int(episode)} (year={year})")
             else:
