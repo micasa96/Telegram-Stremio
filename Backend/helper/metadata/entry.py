@@ -117,6 +117,8 @@ async def metadata(
     diag: dict = None,
     file_name: str = None,
     media_type: str = None,
+    season_override: int = None,
+    episode_override: int = None,
 ) -> dict | None:
     def _fail(reason: str):
         if diag is not None:
@@ -241,6 +243,14 @@ async def metadata(
     # An explicit id (tt…, tv…, mv…, tmdbid=…) is enough to resolve a title even
     # when the caption has no readable name ("1080p.S3E4.mkv.IMDB").
     default_id = _resolve_default_id(override_id, f"{filename}\n{file_name or ''}")
+
+    # What the uploader typed in the Map dialog wins over any parsed guess.
+    if season_override is not None:
+        season = int(season_override)
+        absolute = False
+    if episode_override is not None:
+        episode = int(episode_override)
+        absolute = False
 
     if not quality:
         LOGGER.warning(f"Skipping {filename}: No resolution (parsed={parsed})")

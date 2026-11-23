@@ -120,6 +120,7 @@ async def _repair_parts(
     selected_id: str | None,
     media_type: str,
     season: int | None,
+    episode: int | None = None,
     quality: str,
     actor: str,
 ) -> dict:
@@ -153,6 +154,8 @@ async def _repair_parts(
             diag=diag,
             file_name=file_name or None,
             media_type=media_type,
+            season_override=season,
+            episode_override=episode,
         )
         if not info:
             reason = diag.get("reason") or "metadata_failed"
@@ -387,6 +390,7 @@ async def map_import(item_id: str, body: MapBody, request: Request):
         selected_id=_normalize_selected(selected, body.media_type),
         media_type=body.media_type,
         season=body.season,
+        episode=body.episode,
         quality=quality,
         actor=_current_user(request),
     )
