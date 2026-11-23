@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from Backend import __version__
+from Backend.helper import tv_in_movies
 from Backend.fastapi.security.permissions import OWNER_ONLY_SETTINGS
 from Backend.fastapi.themes import get_theme, theme_key
 from Backend.fastapi.routes.api_routes import (
@@ -916,6 +917,26 @@ async def tools_scan_abort(_: bool = Depends(require_auth)):
 @app.get("/api/admin/tools/scan/status")
 async def tools_scan_status(_: bool = Depends(require_auth)):
     return await scan_status_api()
+
+@app.get("/api/admin/tools/tv-in-movies/preview")
+async def tools_tvim_preview(_: bool = Depends(require_auth)):
+    return await tv_in_movies.preview(db)
+
+@app.post("/api/admin/tools/tv-in-movies/start")
+async def tools_tvim_start(_: bool = Depends(require_auth)):
+    return await tv_in_movies.start(db, dry_run=True)
+
+@app.post("/api/admin/tools/tv-in-movies/apply")
+async def tools_tvim_apply(_: bool = Depends(require_auth)):
+    return await tv_in_movies.start(db, dry_run=False)
+
+@app.get("/api/admin/tools/tv-in-movies/status")
+async def tools_tvim_status(_: bool = Depends(require_auth)):
+    return {"status": tv_in_movies.get_state()}
+
+@app.post("/api/admin/tools/tv-in-movies/cancel")
+async def tools_tvim_cancel(_: bool = Depends(require_auth)):
+    return tv_in_movies.cancel()
 
 @app.post("/api/admin/tools/dbcheck/start")
 async def tools_dbcheck_start(_: bool = Depends(require_auth)):

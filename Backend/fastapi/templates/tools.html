@@ -317,6 +317,26 @@
         <p class="hint mt-3" id="scan-error" style="color:var(--danger);display:none"></p>
     </div>
 
+    <!-- ══ TV shows stored as movies ════════════════════════════════════ -->
+    <div class="tool-card">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+            <h2 style="margin-bottom:0"><i class="fa-solid fa-right-left"></i> TV shows stored as movies</h2>
+            <span id="tvim-status-pill" class="status-pill status-idle">Idle</span>
+        </div>
+        <p class="hint mt-3 mb-4">
+            Finds titles in <b>Movies</b> whose files are episodes (S01E02) and re-indexes them as series.
+            Run the <b>dry run</b> first — nothing is deleted until you press <b>Move now</b>.
+        </p>
+        <p id="tvim-preview" class="text-sm"></p>
+        <div class="flex flex-wrap gap-2 mt-3">
+            <button class="btn btn-ghost" onclick="tvimPreview()"><i class="fa-solid fa-magnifying-glass"></i> Preview</button>
+            <button class="btn btn-primary" onclick="tvimStart(true)"><i class="fa-solid fa-flask"></i> Dry run</button>
+            <button class="btn btn-danger" onclick="tvimStart(false)"><i class="fa-solid fa-right-left"></i> Move now</button>
+            <button class="btn btn-ghost" onclick="tvimCancel()">Cancel</button>
+        </div>
+        <p id="tvim-status" class="text-sm mt-3"></p>
+    </div>
+
     <!-- ══ Bot Admin Manager ════════════════════════════════════════════ -->
     <div class="tool-card">
         <div class="flex items-center justify-between flex-wrap gap-2">
@@ -806,6 +826,61 @@ async function abortScan() {
     } catch (e) {
         showToast('Network error.', 'error', 'Error');
     }
+}
+
+/* ─────────────── TV shows stored as movies ─────────────── */
+let tvimTimer = null;
+
+async function tvimPreview() {
+    const box = document.getElementById('tvim-preview');
+    box.textContent = 'Scanning the movie collection…';
+    try {
+        const res = await fetch('/api/admin/tools/tv-in-movies/preview');
+        const data = await res.json();
+        const sample = (data.sample || []).slice(0, 8)
+            .map(x => `• ${x.title || '?'} (${x.year || '?'}) — ${(x.files || []).join(', ')}`)
+            .join('<br>');
+        box.innerHTML = `<b>${data.count || 0}</b> title(s) look like series inside Movies.`
+            + (sample ? `<br><span class="text-xs">${sample}</span>` : '');
+    } catch (e) {
+        box.textContent = 'Preview failed.';
+    }
+}
+
+async function tvimStart(dryRun) {
+    if (!dryRun && !confirm('Move every detected title from Movies to Series?\n\nThis deletes the movie entry once the episodes are re-indexed. Run the dry run first if you have not.')) return;
+    try {
+        const res = await fetch(`/api/admin/tools/tv-in-movies/${dryRun ? 'start' : 'apply'}`, { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message || 'Started', data.ok ? 'success' : 'error', 'TV in movies');
+        tvimPoll();
+        if (!tvimTimer) tvimTimer = setInterval(tvimPoll, 2500);
+    } catch (e) {
+        showToast('Network error.', 'error', 'Error');
+    }
+}
+
+async function tvimCancel() {
+    try { await fetch('/api/admin/tools/tv-in-movies/cancel', { method: 'POST' }); } catch (e) {}
+}
+
+async function tvimPoll() {
+    try {
+        const res = await fetch('/api/admin/tools/tv-in-movies/status');
+        const s = (await res.json()).status || {};
+        const el = document.getElementById('tvim-status');
+        const pill = document.getElementById('tvim-status-pill');
+        pill.textContent = s.running ? 'Running' : 'Idle';
+        pill.className = 'status-pill ' + (s.running ? 'status-running' : 'status-idle');
+        if (s.running) {
+            el.textContent = `${s.dry_run ? 'Dry run' : 'Moving'} ${s.processed}/${s.total}`
+                + ` · moved ${s.moved} · skipped ${s.skipped} · files ${s.files_moved}`;
+        } else if (s.finished_at) {
+            el.textContent = `Done${s.dry_run ? ' (dry run)' : ''}`
+                + ` · moved ${s.moved} · skipped ${s.skipped} · failed ${s.failed} · files ${s.files_moved}`;
+            if (tvimTimer) { clearInterval(tvimTimer); tvimTimer = null; }
+        }
+    } catch (e) {}
 }
 
 function startScanPolling() {
