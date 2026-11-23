@@ -560,6 +560,7 @@ class ScanManager:
                     name=title_clean,
                     raw_size=raw_size,
                     status=insert_status,
+                    caption=message.caption or "",
                 )
             if updated_id:
                 if insert_status.get("duplicate_skipped"):

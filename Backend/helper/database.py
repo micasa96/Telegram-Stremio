@@ -1338,7 +1338,7 @@ class Database:
     async def insert_media(
         self, metadata_info: dict,
         channel: int, msg_id: int, size: str, name: str, raw_size: int = 0,
-        status: Optional[dict] = None
+        status: Optional[dict] = None, caption: str = ""
     ) -> Optional[ObjectId]:
 
         name = self._display_name(name, metadata_info)
@@ -1361,6 +1361,7 @@ class Database:
                 size=part_size,
                 group_key=group_key,
                 parts=[QualityPart(**part)],
+                caption=(caption or "").strip() or None,
             )
         else:
             quality_detail = QualityDetail(
@@ -1368,6 +1369,7 @@ class Database:
                 id=metadata_info['encoded_string'],
                 name=name,
                 size=size,
+                caption=(caption or "").strip() or None,
             )
 
         def _as_int(val):
@@ -1584,6 +1586,14 @@ class Database:
         target_quality = quality_to_update.get("quality")
         incoming_group_key = quality_to_update.get("group_key")
         replace_mode = SettingsManager.current().replace_mode
+
+        #----- A re-upload of the same release must not show twice, even when the
+        #----- second upload got a different group key (other caption/part name).
+        incoming_key = self._dup_key(quality_to_update)
+        existing_qualities = [
+            q for q in existing_qualities
+            if q.get("id") == quality_to_update.get("id") or self._dup_key(q) != incoming_key
+        ]
 
         if incoming_group_key:
             #----- Incoming is a split part.

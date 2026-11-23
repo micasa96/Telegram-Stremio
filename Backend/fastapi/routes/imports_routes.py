@@ -180,6 +180,7 @@ async def _repair_parts(
             raw_size=int(target.get("size_bytes") or 0),
             name=finalize_media_name(target.get("caption") or file_name, bool(info.get("group_key"))),
             status=insert_status,
+            caption=target.get("caption") or "",
         )
         if not inserted:
             failed.append({"id": target.get("id"), "reason": "insert_failed"})

@@ -71,7 +71,7 @@ async def process_file():
         metadata_info, channel, msg_id, size, raw_size, title, stamp = await file_queue.get()
         insert_status: dict = {}
         async with db_lock:
-            updated_id = await db.insert_media(metadata_info, channel=channel, msg_id=msg_id, size=size, raw_size=raw_size, name=title, status=insert_status)
+            updated_id = await db.insert_media(metadata_info, channel=channel, msg_id=msg_id, size=size, raw_size=raw_size, name=title, status=insert_status, caption=title)
             if updated_id:
                 LOGGER.info(f"{metadata_info['media_type']} updated with ID: {updated_id}")
             else:
@@ -193,6 +193,7 @@ async def _handle_personal_session(client: Client, message: Message) -> None:
             updated_id = await db.insert_media(
                 metadata_info, channel=p_channel, msg_id=p_msg,
                 size=resolved["size"], name=name, raw_size=int(resolved.get("raw_size") or 0),
+                caption=message.caption or "",
             )
 
         if updated_id:

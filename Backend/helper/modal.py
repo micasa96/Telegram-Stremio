@@ -19,6 +19,7 @@ class QualityDetail(BaseModel):
     size: str
     group_key: Optional[str] = None
     parts: Optional[List[QualityPart]] = None
+    caption: Optional[str] = None
 
 
 class Episode(BaseModel):

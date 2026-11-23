@@ -109,6 +109,7 @@
   .file-row:hover { border-color: var(--hairline-strong); }
   .file-main { min-width: 0; flex: 1; }
   .file-name { font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-caption { font-size: .72rem; color: var(--text-secondary, #8a8a8a); overflow-wrap: anywhere; margin-top: 2px; }
   .file-sub { font-size: .78rem; color: var(--text-sec); }
   .file-actions { display: flex; gap: .25rem; flex-shrink: 0; }
   .q-badge { flex-shrink: 0; min-width: 3.4rem; text-align: center; padding: .2rem .5rem; border-radius: 8px; font-size: .74rem; font-weight: 600; background: var(--card-high); color: var(--text); }
@@ -513,6 +514,9 @@
                 <div class="file-main">
                     <p class="file-name" title="{{ quality.name }}">{{ quality.name }}</p>
                     <p class="file-sub">{{ quality.size }}{% if quality.parts %} · {{ quality.parts|length }} parts{% endif %}</p>
+                    {% if quality.caption and quality.caption != quality.name %}
+                    <p class="file-caption" title="{{ quality.caption }}">{{ quality.caption }}</p>
+                    {% endif %}
                 </div>
                 <div class="file-actions">
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-name="{{ quality.name }}" onclick="copyStreamLink(this.dataset.id, this.dataset.name)" title="Copy stream link" aria-label="Copy stream link"><i class="fa-solid fa-link"></i></button>
@@ -584,6 +588,9 @@
                 <div class="file-main">
                     <p class="file-name" title="{{ quality.name }}">{{ quality.name }}</p>
                     <p class="file-sub">{{ quality.size }}{% if quality.parts %} · {{ quality.parts|length }} parts{% endif %}</p>
+                    {% if quality.caption and quality.caption != quality.name %}
+                    <p class="file-caption" title="{{ quality.caption }}">{{ quality.caption }}</p>
+                    {% endif %}
                 </div>
                 <div class="file-actions">
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-name="{{ quality.name }}" onclick="copyStreamLink(this.dataset.id, this.dataset.name)" title="Copy stream link" aria-label="Copy stream link"><i class="fa-solid fa-link"></i></button>
