@@ -1341,6 +1341,7 @@ class Database:
         status: Optional[dict] = None
     ) -> Optional[ObjectId]:
 
+        name = self._display_name(name, metadata_info)
         group_key = metadata_info.get("group_key")
         part_number = metadata_info.get("part_number")
 
@@ -1443,6 +1444,74 @@ class Database:
                 )]
             )
             return await self.update_tv_show(tv_show, status)
+
+    @staticmethod
+    def _display_name(name: str, info: dict) -> str:
+        """Never store a file name that is only a quality token ("1080p.mkv").
+
+        When the caption carries nothing but the quality (or nothing at all),
+        fall back to the resolved title so the Files list stays readable.
+        """
+        value = (name or "").strip()
+        ext_match = re.search(r"(?i)\.(mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts)$", value)
+        ext = f".{ext_match.group(1).lower()}" if ext_match else ".mkv"
+        stem = value[: ext_match.start()] if ext_match else value
+        letters = re.sub(r"(?i)\b(?:2160p|1440p|1080p|720p|576p|480p|360p|4k|uhd)\b", "", stem)
+        if any(ch.isalpha() for ch in letters):
+            return value
+
+        title = str(info.get("title") or "").strip()
+        if not title:
+            return value
+        quality = str(info.get("quality") or "").strip()
+        return f"{title} {quality}{ext}".strip()
+
+    async def fix_quality_only_names(self) -> int:
+        """Rename file entries stored as just "1080p.mkv" using the media title.
+
+        One-off maintenance for libraries indexed before the guard in
+        `_display_name` existed.
+        """
+        fixed = 0
+        for i in range(1, self.current_db_index + 1):
+            storage = self.dbs.get(f"storage_{i}")
+            if storage is None:
+                continue
+
+            async for doc in storage["movie"].find({}, {"title": 1, "telegram": 1}):
+                changed = False
+                for q in doc.get("telegram", []) or []:
+                    new_name = self._display_name(
+                        q.get("name") or "",
+                        {"title": doc.get("title"), "quality": q.get("quality")},
+                    )
+                    if new_name and new_name != (q.get("name") or ""):
+                        q["name"] = new_name
+                        changed = True
+                        fixed += 1
+                if changed:
+                    await storage["movie"].update_one(
+                        {"_id": doc["_id"]}, {"$set": {"telegram": doc["telegram"]}}
+                    )
+
+            async for doc in storage["tv"].find({}, {"title": 1, "seasons": 1}):
+                changed = False
+                for season in doc.get("seasons", []) or []:
+                    for ep in season.get("episodes", []) or []:
+                        for q in ep.get("telegram", []) or []:
+                            new_name = self._display_name(
+                                q.get("name") or "",
+                                {"title": doc.get("title"), "quality": q.get("quality")},
+                            )
+                            if new_name and new_name != (q.get("name") or ""):
+                                q["name"] = new_name
+                                changed = True
+                                fixed += 1
+                if changed:
+                    await storage["tv"].update_one(
+                        {"_id": doc["_id"]}, {"$set": {"seasons": doc["seasons"]}}
+                    )
+        return fixed
 
     async def _delete_split_part(self, part: dict) -> None:
         try:

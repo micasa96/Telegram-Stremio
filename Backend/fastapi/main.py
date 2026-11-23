@@ -196,6 +196,24 @@ async def _startup():
 
     asyncio.create_task(_ensure_auto_catalogs())
 
+    #----- One-off: rename file entries saved as just "1080p.mkv"
+    async def _fix_quality_only_names():
+        try:
+            state = await db.dbs["tracking"]["state"].find_one({"_id": "display_name_fix"})
+            if state and state.get("done"):
+                return
+            count = await db.fix_quality_only_names()
+            await db.dbs["tracking"]["state"].update_one(
+                {"_id": "display_name_fix"},
+                {"$set": {"done": True, "fixed": count}},
+                upsert=True,
+            )
+            print(f"[STARTUP] Renamed {count} quality-only file entries")
+        except Exception as e:
+            print(f"[STARTUP] display-name fix skipped: {e}")
+
+    asyncio.create_task(_fix_quality_only_names())
+
 
 #----- Streaming and Stremio routers
 app.include_router(stream_router)
