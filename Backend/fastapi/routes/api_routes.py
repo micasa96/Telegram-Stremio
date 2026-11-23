@@ -445,6 +445,30 @@ async def _resolve_speed_test_target(quality_id: str):
     return int(f"-100{raw_cid}"), int(msg_id), decoded
 
 
+#----- Read the original caption straight from Telegram (works for old files too)
+async def file_caption_api(quality_id: str = Query(...)) -> dict:
+    chat_id, msg_id, decoded = await _resolve_speed_test_target(quality_id)
+    if not chat_id or not msg_id:
+        raise HTTPException(status_code=422, detail="Invalid quality id.")
+    client = _scan_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="No Telegram client available.")
+    try:
+        message = await client.get_messages(chat_id, int(msg_id))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not read the message: {e}")
+    if not message or not getattr(message, "id", None):
+        raise HTTPException(status_code=404, detail="Message not found.")
+
+    caption = (getattr(message, "caption", None) or "").strip()
+    file_name = ""
+    if getattr(message, "document", None):
+        file_name = message.document.file_name or ""
+    elif getattr(message, "video", None):
+        file_name = message.video.file_name or ""
+    return {"caption": caption, "file_name": file_name}
+
+
 #----- Run a parallel download speed test across all connected clients
 async def speed_test_api(
     quality_id: str = Query(..., description="Encoded quality ID from DB"),

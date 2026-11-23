@@ -514,11 +514,9 @@
                 <div class="file-main">
                     <p class="file-name" title="{{ quality.name }}">{{ quality.name }}</p>
                     <p class="file-sub">{{ quality.size }}{% if quality.parts %} · {{ quality.parts|length }} parts{% endif %}</p>
-                    {% if quality.caption and quality.caption != quality.name %}
-                    <p class="file-caption" title="{{ quality.caption }}">{{ quality.caption }}</p>
-                    {% endif %}
                 </div>
                 <div class="file-actions">
+                    <button type="button" class="icon-act" data-id="{{ quality.id }}" onclick="showCaption(this.dataset.id, this)" title="Show caption" aria-label="Show caption"><i class="fa-regular fa-comment-dots"></i></button>
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-name="{{ quality.name }}" onclick="copyStreamLink(this.dataset.id, this.dataset.name)" title="Copy stream link" aria-label="Copy stream link"><i class="fa-solid fa-link"></i></button>
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-q="{{ quality.quality }}" onclick="runSpeedTest(this.dataset.id, 'movie', this.dataset.q)" title="Speed test" aria-label="Speed test"><i class="fa-solid fa-gauge-high"></i></button>
                     {% if permissions is not defined or 'media.delete' in permissions %}
@@ -588,11 +586,9 @@
                 <div class="file-main">
                     <p class="file-name" title="{{ quality.name }}">{{ quality.name }}</p>
                     <p class="file-sub">{{ quality.size }}{% if quality.parts %} · {{ quality.parts|length }} parts{% endif %}</p>
-                    {% if quality.caption and quality.caption != quality.name %}
-                    <p class="file-caption" title="{{ quality.caption }}">{{ quality.caption }}</p>
-                    {% endif %}
                 </div>
                 <div class="file-actions">
+                    <button type="button" class="icon-act" data-id="{{ quality.id }}" onclick="showCaption(this.dataset.id, this)" title="Show caption" aria-label="Show caption"><i class="fa-regular fa-comment-dots"></i></button>
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-name="{{ quality.name }}" onclick="copyStreamLink(this.dataset.id, this.dataset.name)" title="Copy stream link" aria-label="Copy stream link"><i class="fa-solid fa-link"></i></button>
                     <button type="button" class="icon-act" data-id="{{ quality.id }}" data-q="{{ quality.quality }}" onclick="runSpeedTest(this.dataset.id, 'tv', this.dataset.q)" title="Speed test" aria-label="Speed test"><i class="fa-solid fa-gauge-high"></i></button>
                     {% if permissions is not defined or 'media.delete' in permissions %}
@@ -1183,6 +1179,29 @@
 
     function showErrorMessage(message) {
         showToast(message, 'error', 'Error');
+    }
+
+    async function showCaption(qualityId, btn) {
+        const row = btn ? btn.closest('.file-row') : null;
+        const main = row ? row.querySelector('.file-main') : null;
+        if (!main) return;
+
+        const existing = main.querySelector('.file-caption');
+        if (existing) { existing.remove(); return; }
+
+        const el = document.createElement('p');
+        el.className = 'file-caption';
+        el.textContent = 'Loading caption…';
+        main.appendChild(el);
+
+        try {
+            const res = await fetch(`/api/admin/media/file-caption?quality_id=${encodeURIComponent(qualityId)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Request failed');
+            el.textContent = data.caption || '(this message has no caption)';
+        } catch (e) {
+            el.textContent = 'Could not load the caption: ' + e.message;
+        }
     }
 
     function copyStreamLink(qualityId, fileName) {

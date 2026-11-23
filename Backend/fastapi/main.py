@@ -104,6 +104,7 @@ from Backend.fastapi.routes.api_routes import (
     set_media_visibility_api,
     search_media_rescan_api,
     tag_media_api,
+    file_caption_api,
     speed_test_api,
     speed_test_stream_api,
     start_dbcheck_api,
@@ -560,6 +561,10 @@ async def update_request(request_id: str, payload: dict, _: bool = Depends(requi
 @app.delete("/api/admin/requests/{request_id}")
 async def delete_request_route(request_id: str, _: bool = Depends(require_auth)):
     return await delete_request_api(request_id)
+
+@app.get("/api/admin/media/file-caption")
+async def media_file_caption(quality_id: str = Query(...), _: bool = Depends(require_auth)):
+    return await file_caption_api(quality_id)
 
 @app.get("/api/system/speedtest")
 async def speed_test(
