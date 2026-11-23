@@ -101,7 +101,7 @@ def _sanitize_search_title(title: str) -> str:
     value = re.sub(r"\s+", " ", value).strip(" .,-_[]()")
     value = _TRAILING_EXT_RE.sub("", value)
 
-    words = value.split()
+    words = [w for w in value.split() if any(ch.isalnum() for ch in w)]
     while words and words[0].lower().strip(",.;:-") in _LEADING_NOISE:
         words.pop(0)
     return " ".join(words).strip(" .,-_[]()")
@@ -170,6 +170,7 @@ async def metadata(
         if name_target and name_target != parse_target and name_target not in extra_sources:
             extra_sources.append(name_target)
 
+    alt_title = None
     for extra in extra_sources:
         try:
             fallback = parse_media_name(extra)
@@ -183,8 +184,11 @@ async def metadata(
             episode = fallback.get("episode")
         if year is None:
             year = fallback.get("year")
+        fb_title = _sanitize_search_title(fallback.get("title") or "")
         if not title:
             title = fallback.get("title")
+        elif fb_title and fb_title.lower() != str(title).lower() and not alt_title:
+            alt_title = fb_title
 
     if season_hint is not None and episode and not season and not isinstance(episode, list):
         season = season_hint
@@ -271,6 +275,16 @@ async def metadata(
     # Drop ids / quality / language noise the caption may carry.
     title = _sanitize_search_title(title)
 
+    # Captions sometimes carry the episode name instead of the show name
+    # ("Leech Started - S03E02") while the file name has the real title.
+    title_candidates: list[str] = []
+    for candidate in (title, alt_title):
+        value = (candidate or "").strip()
+        if value and value.lower() not in {c.lower() for c in title_candidates}:
+            title_candidates.append(value)
+    if not title_candidates:
+        title_candidates = [""]
+
     try:
         encoded_string = await encode_string({"chat_id": channel, "msg_id": msg_id})
     except Exception:
@@ -302,43 +316,57 @@ async def metadata(
                 season = 1
             if episode is None:
                 episode = 1
-            if absolute:
-                LOGGER.info(f"Fetching TV metadata (absolute): {title} E{int(episode)} (year={year})")
-            else:
-                LOGGER.info(f"Fetching TV metadata: {title} S{int(season):02d}E{int(episode):02d} (year={year})")
-            result = None
+
+        async def _resolve_with(search_title: str):
+            if is_tv:
+                if absolute:
+                    LOGGER.info(f"Fetching TV metadata (absolute): {search_title} E{int(episode)} (year={year})")
+                else:
+                    LOGGER.info(f"Fetching TV metadata: {search_title} S{int(season):02d}E{int(episode):02d} (year={year})")
+                found = None
+                if not default_id and anime_channel:
+                    found = await resolve_anime_tv(
+                        search_title, season, int(episode), encoded_string,
+                        year=year, quality=quality, absolute=absolute,
+                    )
+                if found is None and not absolute:
+                    found = await resolve_series(
+                        search_title, int(season), int(episode), encoded_string,
+                        year=year, quality=quality, default_id=default_id,
+                    )
+                # Absolute on non-anime channel: still try series with season 1
+                if found is None and absolute:
+                    found = await resolve_series(
+                        search_title, 1, int(episode), encoded_string,
+                        year=year, quality=quality, default_id=default_id,
+                    )
+                    if found:
+                        found["absolute_episode"] = int(episode)
+                        found["episode_number"] = int(episode)
+                if found is not None and combined:
+                    apply_combined_override(found, combined)
+                return found
+
+            LOGGER.info(f"Fetching Movie metadata: {search_title} (year={year})")
+            found = None
             if not default_id and anime_channel:
-                result = await resolve_anime_tv(
-                    title, season, int(episode), encoded_string,
-                    year=year, quality=quality, absolute=absolute,
+                found = await resolve_anime_movie(
+                    search_title, encoded_string, year=year, quality=quality
                 )
-            if result is None and not absolute:
-                result = await resolve_series(
-                    title, int(season), int(episode), encoded_string,
-                    year=year, quality=quality, default_id=default_id,
+            if found is None:
+                found = await resolve_movie(
+                    search_title, encoded_string, year=year, quality=quality, default_id=default_id
                 )
-            # Absolute on non-anime channel: still try series with season 1
-            if result is None and absolute:
-                result = await resolve_series(
-                    title, 1, int(episode), encoded_string,
-                    year=year, quality=quality, default_id=default_id,
-                )
-                if result:
-                    result["absolute_episode"] = int(episode)
-                    result["episode_number"] = int(episode)
-            if result is not None and combined:
-                apply_combined_override(result, combined)
-        else:
-            LOGGER.info(f"Fetching Movie metadata: {title} (year={year})")
-            result = None
-            if not default_id and anime_channel:
-                result = await resolve_anime_movie(
-                    title, encoded_string, year=year, quality=quality
-                )
-            if result is None:
-                result = await resolve_movie(
-                    title, encoded_string, year=year, quality=quality, default_id=default_id
-                )
+            return found
+
+        result = None
+        for candidate in title_candidates:
+            result = await _resolve_with(candidate)
+            if result is not None:
+                if candidate != title:
+                    LOGGER.info(f"Matched using the alternate title '{candidate}'")
+                break
+
         if result is not None:
             if anime_channel:
                 result["is_anime"] = True
