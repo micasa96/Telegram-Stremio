@@ -22,6 +22,11 @@
           <option value="all">All</option>
         </select>
         <input id="search-input" class="field px-3 py-2 text-sm w-48 sm:w-64" placeholder="Filter by name or caption">
+        <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none px-1">
+          <input id="select-all" type="checkbox" onchange="toggleSelectAll(this)"
+                 style="width:16px;height:16px;margin:0;accent-color:var(--primary);cursor:pointer">
+          Select all
+        </label>
         <button class="btn-ghost px-4 py-2 text-sm" onclick="loadImports()">
           <i class="fa-solid fa-rotate"></i> Refresh
         </button>
@@ -264,7 +269,12 @@
           : '';
 
         return `<div class="glass-panel rounded-2xl p-4">
-          <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            ${isPending ? `<label class="pt-1 cursor-pointer" title="Select this file">
+              <input type="checkbox" class="bulk-check" data-id="${esc(lead.id)}" ${bulkIds.has(String(lead.id)) ? 'checked' : ''} onchange="toggleBulk(this)"
+                     style="width:16px;height:16px;margin:0;accent-color:var(--primary);cursor:pointer">
+            </label>` : `<span style="flex:0 0 16px"></span>`}
+            <div class="flex-1 min-w-0 flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-bold text-sm break-all"><span class="text-[10px] uppercase text-text-secondary mr-1">file</span>${esc(lead.file_name || '(no filename)')}</p>
               <p class="text-xs text-text-secondary mt-1 break-all"><span class="text-[10px] uppercase mr-1">caption</span>${esc(lead.caption || '—')}</p>
@@ -282,9 +292,6 @@
               </div>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
-              ${isPending ? `<label class="flex items-center gap-1 text-[11px] text-text-secondary">
-                <input type="checkbox" class="bulk-check" data-id="${esc(lead.id)}" ${bulkIds.has(String(lead.id)) ? 'checked' : ''} onchange="toggleBulk(this)"> select
-              </label>` : ''}
               ${canMap ? `<button class="btn-primary px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openMap(this)">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> ${g.items.length > 1 ? 'Map file' : 'Map'}
               </button>` : ''}
@@ -292,6 +299,7 @@
                 <i class="fa-solid fa-gauge-high"></i> ${lead.quality ? 'Change quality' : 'Add quality'}
               </button>` : ''}
               ${isPending ? `<button class="btn-ghost px-3 py-2 text-xs" data-id="${esc(lead.id)}" onclick="ignoreImport(this)">Ignore</button>` : ''}
+            </div>
             </div>
           </div>
         </div>`;
@@ -301,6 +309,9 @@
     document.getElementById('page-label').textContent = `Page ${page} of ${pages} · ${total} item(s)`;
     document.getElementById('prev-btn').disabled = page <= 1;
     document.getElementById('next-btn').disabled = page >= pages;
+    const checks = Array.from(document.querySelectorAll('.bulk-check'));
+    const allBox = document.getElementById('select-all');
+    if (allBox) allBox.checked = checks.length > 0 && checks.every(function (c) { return c.checked; });
     updateBulkBar();
   }
 
@@ -398,6 +409,18 @@
   window.clearBulk = function () {
     bulkIds.clear();
     document.querySelectorAll('.bulk-check').forEach(function (c) { c.checked = false; });
+    const all = document.getElementById('select-all');
+    if (all) all.checked = false;
+    updateBulkBar();
+  };
+
+  window.toggleSelectAll = function (cb) {
+    document.querySelectorAll('.bulk-check').forEach(function (c) {
+      c.checked = cb.checked;
+      const id = String(c.dataset.id || '');
+      if (!id) return;
+      if (cb.checked) bulkIds.add(id); else bulkIds.delete(id);
+    });
     updateBulkBar();
   };
 
