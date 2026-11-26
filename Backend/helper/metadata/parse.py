@@ -27,6 +27,8 @@ _EXPLICIT_SXXEXX_RE = re.compile(r"(?i)\bs\d{1,2}[._\s-]*e\d{1,3}\b")
 # Episode may be 1-3 digits so "4x2" / "1x1" / "12x3" are caught (was \d{2,3},
 # which dropped single-digit episodes like "4x2" and forced episode 1).
 _EXPLICIT_NXNN_RE = re.compile(r"(?i)\b\d{1,2}x\d{1,3}\b")
+# Spanish order: "T01E02" / "T1E1" (temporada 1, episodio 2).
+_EXPLICIT_TXXEYY_RE = re.compile(r"(?i)(?<![a-z0-9])t\s*0*(\d{1,2})\s*[._\s-]*e\s*0*(\d{1,4})(?![0-9])")
 _EXPLICIT_SEASON_WORD_RE = re.compile(r"(?i)\b(?:season|series)\s*0*\d{1,2}\b")
 # Latino Spanish wording: "temporada N" / "temp N" (season) and
 # "capitulo N" / "capítulo N" / "cap N" (episode). Tolerates "_" / "." as the
@@ -109,6 +111,7 @@ def parse_media_name(name: str) -> dict:
                 has_anchor = bool(
                     _EXPLICIT_SXXEXX_RE.search(name)
                     or _EXPLICIT_NXNN_RE.search(name)
+                    or _EXPLICIT_TXXEYY_RE.search(name)
                     or _EXPLICIT_SEASON_WORD_RE.search(name)
                     or _EXPLICIT_CAPITULO_RE.search(name)
                 )
@@ -180,9 +183,22 @@ def parse_media_name(name: str) -> dict:
                 if _ep_int is not None and _ep_int > 0:
                     parsed["episode"] = _ep_int
 
+    # Spanish "T01E02" ordering (temporada/episodio). Unambiguous, so it wins
+    # over anything PTN guessed.
+    _te_m = _EXPLICIT_TXXEYY_RE.search(name)
+    if _te_m is not None:
+        try:
+            _te_season = int(_te_m.group(1))
+            _te_episode = int(_te_m.group(2))
+        except (TypeError, ValueError):
+            _te_season = _te_episode = None
+        if _te_season is not None and _te_season > 0:
+            parsed["season"] = _te_season
+        if _te_episode is not None and _te_episode > 0:
+            parsed["episode"] = _te_episode
+
     if not parsed["quality"] and (m := _RES_GLUED_RE.search(name)):
         parsed["quality"] = m.group(0).lower()
-
     # Normalize season 0 → None (specials folder only, not a real season for routing)
     try:
         if parsed.get("season") is not None and int(parsed["season"]) == 0:

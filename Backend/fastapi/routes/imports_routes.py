@@ -101,6 +101,28 @@ def _item_part_base(item: dict) -> str:
     return info[0] if info else ""
 
 
+#----- Rewrite a series caption as "1080p.Title.S01E01.mkv" so the next scan reads it
+_CAPTION_EXT_RE = re.compile(r"(?i)\.(mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts)$")
+
+
+def _build_series_caption(info: dict, source: str) -> str:
+    title = str(info.get("title") or "").strip()
+    season = info.get("season_number")
+    episode = info.get("episode_number")
+    if not title or season is None or episode is None:
+        return ""
+
+    ext_m = _CAPTION_EXT_RE.search(source or "")
+    ext = ext_m.group(0).lower() if ext_m else ".mkv"
+
+    quality = str(info.get("quality") or "").strip()
+    safe_title = re.sub(r"[\\/:*?\"<>|]", "", title)
+    safe_title = re.sub(r"\s+", ".", safe_title).strip(".")
+
+    parts = [p for p in (quality, safe_title, f"S{int(season):02d}E{int(episode):02d}") if p]
+    return ".".join(parts) + ext
+
+
 async def _group_targets(item: dict) -> list[dict]:
     """All failed-import rows that belong to the same split file."""
     chat_id = int(item["chat_id"])
@@ -123,6 +145,7 @@ async def _repair_parts(
     episode: int | None = None,
     quality: str,
     actor: str,
+    rename_caption: bool = False,
 ) -> dict:
     """Repair a whole split file: insert every sibling with the same group_key.
 
@@ -199,6 +222,17 @@ async def _repair_parts(
         if first_info is None:
             first_info = info
 
+        # A clean caption is what the next scan will read, so a conflictive
+        # series is renamed once the uploader confirms the title.
+        if rename_caption and not part_base and info.get("media_type") == "tv":
+            new_caption = _build_series_caption(info, target.get("caption") or file_name)
+            if new_caption and new_caption != (target.get("caption") or "").strip():
+                try:
+                    await edit_message(chat_id, msg_id, new_caption)
+                except Exception as e:
+                    LOGGER.warning(f"[imports] caption rename failed for {chat_id}/{msg_id}: {e}")
+                    warnings.append("The Telegram caption could not be renamed.")
+
     if first_info:
         start_single_media_catalog_sync(
             db,
@@ -230,6 +264,7 @@ class MapBody(BaseModel):
     season: int | None = None
     episode: int | None = None
     quality: str | None = None
+    rename_caption: bool = False
 
 
 class QualityBody(BaseModel):
@@ -394,6 +429,7 @@ async def map_import(item_id: str, body: MapBody, request: Request):
         episode=body.episode,
         quality=quality,
         actor=_current_user(request),
+        rename_caption=body.rename_caption,
     )
 
     if not result["ok"]:
