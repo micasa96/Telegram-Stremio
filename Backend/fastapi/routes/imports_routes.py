@@ -103,20 +103,34 @@ def _item_part_base(item: dict) -> str:
 
 #----- Rewrite a series caption as "1080p.Title.S01E01.mkv" so the next scan reads it
 _CAPTION_EXT_RE = re.compile(r"(?i)\.(mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts)$")
+_CAPTION_QUALITY_RE = re.compile(r"(?i)\b(2160p|1440p|1080p|720p|576p|480p|360p|4k|uhd)\b")
 
 
 def _build_series_caption(info: dict, source: str) -> str:
+    """Keep the caption's own quality/season/episode and only add the title."""
+    src = (source or "").strip()
     title = str(info.get("title") or "").strip()
     season = info.get("season_number")
     episode = info.get("episode_number")
     if not title or season is None or episode is None:
         return ""
 
-    ext_m = _CAPTION_EXT_RE.search(source or "")
+    ext_m = _CAPTION_EXT_RE.search(src)
     ext = ext_m.group(0).lower() if ext_m else ".mkv"
+    stem = src[: ext_m.start()] if ext_m else src
 
-    quality = str(info.get("quality") or "").strip()
-    safe_title = re.sub(r"[\\/:*?\"<>|]", "", title)
+    def _norm(value: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", value.lower())
+
+    # The caption already carries the title: leave it exactly as it is.
+    if _norm(title) and _norm(title) in _norm(stem):
+        return ""
+
+    # Reuse the quality the caption declares; only fall back to the resolved one.
+    quality_m = _CAPTION_QUALITY_RE.search(stem)
+    quality = quality_m.group(1).lower() if quality_m else str(info.get("quality") or "").strip()
+
+    safe_title = re.sub(r'[\\/:*?"<>|]', "", title)
     safe_title = re.sub(r"\s+", ".", safe_title).strip(".")
 
     parts = [p for p in (quality, safe_title, f"S{int(season):02d}E{int(episode):02d}") if p]
