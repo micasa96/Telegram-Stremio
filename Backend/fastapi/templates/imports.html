@@ -34,6 +34,17 @@
   </div>
 
   <div id="imports-list" class="space-y-3"></div>
+
+  <div id="bulk-bar" class="hidden glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 sticky bottom-2 z-10">
+    <span id="bulk-count" class="text-xs text-text-secondary"></span>
+    <div class="flex gap-2">
+      <button class="btn-ghost px-3 py-2 text-xs" onclick="clearBulk()">Clear</button>
+      <button class="btn-primary px-3 py-2 text-xs" onclick="openBulkMap()">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Map selected
+      </button>
+    </div>
+  </div>
+
   <div class="flex items-center justify-between px-1">
     <button id="prev-btn" class="btn-ghost px-4 py-2 text-sm" onclick="changePage(-1)">Previous</button>
     <span id="page-label" class="text-xs text-text-secondary"></span>
@@ -137,6 +148,8 @@
   let selectedId = null;
   let qualityItemId = null;
   let mapQuality = '';
+  let bulkMode = false;
+  let bulkIds = new Set();
 
   function esc(value) {
     return String(value == null ? '' : value)
@@ -263,6 +276,9 @@
               </div>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
+              ${canMap ? `<label class="flex items-center gap-1 text-[11px] text-text-secondary">
+                <input type="checkbox" class="bulk-check" data-id="${esc(lead.id)}" ${bulkIds.has(String(lead.id)) ? 'checked' : ''} onchange="toggleBulk(this)"> select
+              </label>` : ''}
               ${canMap ? `<button class="btn-primary px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openMap(this)">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> ${g.items.length > 1 ? 'Map file' : 'Map'}
               </button>` : ''}
@@ -279,6 +295,7 @@
     document.getElementById('page-label').textContent = `Page ${page} of ${pages} · ${total} item(s)`;
     document.getElementById('prev-btn').disabled = page <= 1;
     document.getElementById('next-btn').disabled = page >= pages;
+    updateBulkBar();
   }
 
   window.changePage = function (delta) {
@@ -299,7 +316,9 @@
       .replace(/\s+/g, ' ')
       .trim();
 
-    const se = q.match(/\bS(\d{1,3})\s*E(\d{1,4})\b/i) || q.match(/(?:^|[^a-z0-9])T\s*(\d{1,2})\s*[._\s-]*E\s*(\d{1,4})(?![0-9])/i);
+    const se = q.match(/\bS(\d{1,3})\s*E(\d{1,4})\b/i)
+      || q.match(/(?:^|[^a-z0-9])T\s*(\d{1,2})\s*[._\s-]*E\s*(\d{1,4})(?![0-9])/i)
+      || q.match(/(?:^|[^a-z0-9])(\d{1,2})\s*x\s*(\d{1,3})(?![0-9])/i);
     const season = se ? parseInt(se[1], 10) : null;
     const episode = se ? parseInt(se[2], 10) : null;
     if (se) q = q.slice(0, se.index).trim();
@@ -323,6 +342,7 @@
   window.openMap = function (btn) {
     const id = btn.dataset.id;
     const label = btn.dataset.label || '';
+    bulkMode = false;
     currentId = id;
     selectedId = null;
     document.getElementById('map-file').textContent = label;
@@ -352,11 +372,52 @@
     document.body.style.overflow = '';
     currentId = null;
     selectedId = null;
+    bulkMode = false;
+  };
+
+  window.toggleBulk = function (cb) {
+    const id = String(cb.dataset.id || '');
+    if (!id) return;
+    if (cb.checked) bulkIds.add(id); else bulkIds.delete(id);
+    updateBulkBar();
+  };
+
+  function updateBulkBar() {
+    const bar = document.getElementById('bulk-bar');
+    document.getElementById('bulk-count').textContent = `${bulkIds.size} file(s) selected`;
+    bar.classList.toggle('hidden', bulkIds.size === 0);
+    bar.classList.toggle('flex', bulkIds.size !== 0);
+  }
+
+  window.clearBulk = function () {
+    bulkIds.clear();
+    document.querySelectorAll('.bulk-check').forEach(function (c) { c.checked = false; });
+    updateBulkBar();
+  };
+
+  window.openBulkMap = function () {
+    if (!bulkIds.size) return;
+    bulkMode = true;
+    currentId = null;
+    selectedId = null;
+    mapQuality = '';
+    document.getElementById('map-file').textContent =
+      `${bulkIds.size} file(s) selected — each one keeps its own season/episode from its name`;
+    document.getElementById('map-quality').value = '';
+    document.getElementById('map-query').value = '';
+    document.getElementById('map-type').value = 'tv';
+    document.getElementById('map-results').innerHTML = '';
+    document.getElementById('map-confirm').disabled = true;
+    document.getElementById('episode-fields').style.display = 'none';
+    const modal = document.getElementById('map-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
   };
 
   function toggleEpisodeFields() {
     const isTv = document.getElementById('map-type').value === 'tv';
-    document.getElementById('episode-fields').style.display = isTv ? '' : 'none';
+    document.getElementById('episode-fields').style.display = bulkMode ? 'none' : (isTv ? '' : 'none');
   }
 
   window.runSearch = async function () {
@@ -403,9 +464,44 @@
   };
 
   window.confirmMap = async function () {
-    if (!currentId || !selectedId) return;
+    if (!selectedId) return;
     const btn = document.getElementById('map-confirm');
     btn.disabled = true;
+
+    if (bulkMode) {
+      const ids = Array.from(bulkIds);
+      const type = document.getElementById('map-type').value;
+      const quality = (mapQuality || '').trim() || null;
+      const rename = !!(document.getElementById('map-rename-caption') || {}).checked;
+      let ok = 0, fail = 0;
+      for (let i = 0; i < ids.length; i++) {
+        btn.textContent = `Mapping ${i + 1}/${ids.length}…`;
+        try {
+          const res = await fetch(`/api/admin/imports/${encodeURIComponent(ids[i])}/map`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              selected_id: selectedId,
+              media_type: type,
+              season: null,
+              episode: null,
+              quality: quality,
+              rename_caption: rename
+            })
+          });
+          if (res.ok) ok++; else fail++;
+        } catch (e) { fail++; }
+      }
+      clearBulk();
+      closeMap();
+      btn.disabled = false;
+      btn.textContent = 'Map this file';
+      loadImports();
+      alert(`Mapped ${ok} file(s).` + (fail ? ` ${fail} failed.` : ''));
+      return;
+    }
+
+    if (!currentId) return;
     btn.textContent = 'Mapping…';
     try {
       const seasonRaw = document.getElementById('map-season').value;

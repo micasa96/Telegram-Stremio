@@ -108,7 +108,7 @@ _CAPTION_QUALITY_RE = re.compile(r"(?i)\b(2160p|1440p|1080p|720p|576p|480p|360p|
 
 def _build_series_caption(info: dict, source: str) -> str:
     """Keep the caption's own quality/season/episode and only add the title."""
-    src = (source or "").strip()
+    src = (source or "").strip().rstrip(".").strip()
     title = str(info.get("title") or "").strip()
     season = info.get("season_number")
     episode = info.get("episode_number")
@@ -159,7 +159,7 @@ async def _repair_parts(
     episode: int | None = None,
     quality: str,
     actor: str,
-    rename_caption: bool = False,
+    rename_caption: bool = True,
 ) -> dict:
     """Repair a whole split file: insert every sibling with the same group_key.
 

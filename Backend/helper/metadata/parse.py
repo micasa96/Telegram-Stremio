@@ -167,21 +167,20 @@ def parse_media_name(name: str) -> dict:
         if parsed.get("episode") is not None and parsed.get("season") is None:
             parsed["season"] = parsed.get("season") or 1
 
-    # Recover the episode from a raw NxNN token ("4x2", "12x3") when PTN read
-    # the trailing digit as a release "group" instead of the episode (it does
-    # this for single-digit episodes). The anchor regex already widened to
-    # 1-3 digits; pull the episode straight from the match.
-    if parsed.get("season") is not None and parsed.get("episode") is None:
-        _nxnn_m = _EXPLICIT_NXNN_RE.search(name)
-        if _nxnn_m is not None:
-            _nums = _nxnn_m.group(0).lower().split("x")
-            if len(_nums) == 2:
-                try:
-                    _ep_int = int(_nums[1])
-                except (TypeError, ValueError):
-                    _ep_int = None
-                if _ep_int is not None and _ep_int > 0:
-                    parsed["episode"] = _ep_int
+    # Recover season/episode from a raw NxNN token ("2x30", "4x2") when PTN read
+    # the trailing digit as a release "group" instead of the episode.
+    _nxnn_m = _EXPLICIT_NXNN_RE.search(name)
+    if _nxnn_m is not None:
+        _nums = _nxnn_m.group(0).lower().split("x")
+        if len(_nums) == 2:
+            try:
+                _s_int, _e_int = int(_nums[0]), int(_nums[1])
+            except (TypeError, ValueError):
+                _s_int = _e_int = None
+            if _e_int is not None and _e_int > 0:
+                parsed["episode"] = _e_int
+            if _s_int is not None and _s_int > 0 and parsed.get("season") is None:
+                parsed["season"] = _s_int
 
     # Spanish "T01E02" ordering (temporada/episodio). Unambiguous, so it wins
     # over anything PTN guessed.
