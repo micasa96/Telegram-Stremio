@@ -102,11 +102,13 @@ def _item_part_base(item: dict) -> str:
 
 
 #----- Rewrite a series caption as "1080p.Title.S01E01.mkv" so the next scan reads it
-_CAPTION_EXT_RE = re.compile(r"(?i)\.(mkv|mp4|avi|ts|m4v|mov|wmv|webm|flv|m2ts)$")
+# Any short alphabetic extension is kept (.mkv, .mp4, .avi, .ts, ...). Digits are
+# excluded so ".1080p" or a part suffix is never mistaken for an extension.
+_CAPTION_EXT_RE = re.compile(r"(?i)\.([a-z]{2,5})$")
 _CAPTION_QUALITY_RE = re.compile(r"(?i)\b(2160p|1440p|1080p|720p|576p|480p|360p|4k|uhd)\b")
 
 
-def _build_series_caption(info: dict, source: str) -> str:
+def _build_series_caption(info: dict, source: str, file_name: str = "") -> str:
     """Keep the caption's own quality/season/episode and only add the title."""
     src = (source or "").strip().rstrip(".").strip()
     title = str(info.get("title") or "").strip()
@@ -115,9 +117,12 @@ def _build_series_caption(info: dict, source: str) -> str:
     if not title or season is None or episode is None:
         return ""
 
-    ext_m = _CAPTION_EXT_RE.search(src)
-    ext = ext_m.group(0).lower() if ext_m else ".mkv"
-    stem = src[: ext_m.start()] if ext_m else src
+    src_ext = _CAPTION_EXT_RE.search(src)
+    ext = src_ext.group(0).lower() if src_ext else ""
+    if not ext:
+        name_ext = _CAPTION_EXT_RE.search((file_name or "").strip().rstrip("."))
+        ext = name_ext.group(0).lower() if name_ext else ".mkv"
+    stem = src[: src_ext.start()] if src_ext else src
 
     def _norm(value: str) -> str:
         return re.sub(r"[^a-z0-9]", "", value.lower())
@@ -239,7 +244,7 @@ async def _repair_parts(
         # A clean caption is what the next scan will read, so a conflictive
         # series is renamed once the uploader confirms the title.
         if rename_caption and not part_base and info.get("media_type") == "tv":
-            new_caption = _build_series_caption(info, target.get("caption") or file_name)
+            new_caption = _build_series_caption(info, target.get("caption") or "", file_name)
             if new_caption and new_caption != (target.get("caption") or "").strip():
                 try:
                     await edit_message(chat_id, msg_id, new_caption)

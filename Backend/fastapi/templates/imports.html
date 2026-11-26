@@ -35,13 +35,19 @@
 
   <div id="imports-list" class="space-y-3"></div>
 
-  <div id="bulk-bar" class="hidden glass-panel rounded-2xl p-3 flex items-center justify-between gap-3 sticky bottom-2 z-10">
+  <div id="bulk-bar" class="hidden glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 sticky bottom-2 z-10">
     <span id="bulk-count" class="text-xs text-text-secondary"></span>
-    <div class="flex gap-2">
-      <button class="btn-ghost px-3 py-2 text-xs" onclick="clearBulk()">Clear</button>
+    <div class="flex flex-wrap gap-2">
       <button class="btn-primary px-3 py-2 text-xs" onclick="openBulkMap()">
-        <i class="fa-solid fa-wand-magic-sparkles"></i> Map selected
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Map title
       </button>
+      <button class="btn-ghost px-3 py-2 text-xs" onclick="bulkQuality()">
+        <i class="fa-solid fa-gauge-high"></i> Set quality
+      </button>
+      <button class="btn-ghost px-3 py-2 text-xs" onclick="bulkIgnore()">
+        <i class="fa-solid fa-ban"></i> Ignore
+      </button>
+      <button class="btn-ghost px-3 py-2 text-xs" onclick="clearBulk()">Clear</button>
     </div>
   </div>
 
@@ -276,7 +282,7 @@
               </div>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
-              ${canMap ? `<label class="flex items-center gap-1 text-[11px] text-text-secondary">
+              ${isPending ? `<label class="flex items-center gap-1 text-[11px] text-text-secondary">
                 <input type="checkbox" class="bulk-check" data-id="${esc(lead.id)}" ${bulkIds.has(String(lead.id)) ? 'checked' : ''} onchange="toggleBulk(this)"> select
               </label>` : ''}
               ${canMap ? `<button class="btn-primary px-3 py-2 text-xs" data-id="${esc(lead.id)}" data-label="${esc(label)}" data-quality="${esc(lead.quality || '')}" onclick="openMap(this)">
@@ -393,6 +399,39 @@
     bulkIds.clear();
     document.querySelectorAll('.bulk-check').forEach(function (c) { c.checked = false; });
     updateBulkBar();
+  };
+
+  async function bulkPost(path, body) {
+    const ids = Array.from(bulkIds);
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/admin/imports/${encodeURIComponent(id)}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {})
+        });
+        if (res.ok) ok++; else fail++;
+      } catch (e) { fail++; }
+    }
+    clearBulk();
+    loadImports();
+    return { ok: ok, fail: fail };
+  }
+
+  window.bulkQuality = async function () {
+    if (!bulkIds.size) return;
+    const quality = prompt('Quality for the selected files (e.g. 1080p):', '1080p');
+    if (!quality) return;
+    const r = await bulkPost('/quality', { quality: quality, edit_caption: true, retry: true });
+    alert(`Quality saved on ${r.ok} file(s).` + (r.fail ? ` ${r.fail} failed.` : ''));
+  };
+
+  window.bulkIgnore = async function () {
+    if (!bulkIds.size) return;
+    if (!confirm(`Ignore ${bulkIds.size} selected file(s)?`)) return;
+    const r = await bulkPost('/ignore', {});
+    alert(`Ignored ${r.ok} file(s).` + (r.fail ? ` ${r.fail} failed.` : ''));
   };
 
   window.openBulkMap = function () {
