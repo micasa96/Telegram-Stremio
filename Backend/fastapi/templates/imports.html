@@ -97,11 +97,6 @@
                oninput="mapQuality = this.value">
       </div>
 
-      <label class="mt-3 flex items-start gap-2 text-xs text-text-secondary">
-        <input id="map-rename-caption" type="checkbox" checked class="mt-0.5">
-        <span>Rename the Telegram caption to <b>1080p.Title.S01E01.mkv</b> (series only), so future scans find it.</span>
-      </label>
-
       <div id="map-results" class="mt-4 space-y-2 pb-2"></div>
     </div>
 
@@ -534,7 +529,6 @@
       const ids = Array.from(bulkIds);
       const type = document.getElementById('map-type').value;
       const quality = (mapQuality || '').trim() || null;
-      const rename = !!(document.getElementById('map-rename-caption') || {}).checked;
       let ok = 0, fail = 0;
       for (let i = 0; i < ids.length; i++) {
         btn.textContent = `Mapping ${i + 1}/${ids.length}…`;
@@ -547,8 +541,7 @@
               media_type: type,
               season: null,
               episode: null,
-              quality: quality,
-              rename_caption: rename
+              quality: quality
             })
           });
           if (res.ok) ok++; else fail++;
@@ -573,8 +566,7 @@
         media_type: document.getElementById('map-type').value,
         season: seasonRaw === '' ? null : Number(seasonRaw),
         episode: episodeRaw === '' ? null : Number(episodeRaw),
-        quality: (mapQuality || '').trim() || null,
-        rename_caption: !!(document.getElementById('map-rename-caption') || {}).checked
+        quality: (mapQuality || '').trim() || null
       };
       const res = await fetch(`/api/admin/imports/${encodeURIComponent(currentId)}/map`, {
         method: 'POST',

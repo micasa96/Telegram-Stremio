@@ -101,47 +101,6 @@ def _item_part_base(item: dict) -> str:
     return info[0] if info else ""
 
 
-#----- Rewrite a series caption as "1080p.Title.S01E01.mkv" so the next scan reads it
-# Any short alphabetic extension is kept (.mkv, .mp4, .avi, .ts, ...). Digits are
-# excluded so ".1080p" or a part suffix is never mistaken for an extension.
-_CAPTION_EXT_RE = re.compile(r"(?i)\.([a-z]{2,5})$")
-_CAPTION_QUALITY_RE = re.compile(r"(?i)\b(2160p|1440p|1080p|720p|576p|480p|360p|4k|uhd)\b")
-
-
-def _build_series_caption(info: dict, source: str, file_name: str = "") -> str:
-    """Keep the caption's own quality/season/episode and only add the title."""
-    src = (source or "").strip().rstrip(".").strip()
-    title = str(info.get("title") or "").strip()
-    season = info.get("season_number")
-    episode = info.get("episode_number")
-    if not title or season is None or episode is None:
-        return ""
-
-    src_ext = _CAPTION_EXT_RE.search(src)
-    ext = src_ext.group(0).lower() if src_ext else ""
-    if not ext:
-        name_ext = _CAPTION_EXT_RE.search((file_name or "").strip().rstrip("."))
-        ext = name_ext.group(0).lower() if name_ext else ".mkv"
-    stem = src[: src_ext.start()] if src_ext else src
-
-    def _norm(value: str) -> str:
-        return re.sub(r"[^a-z0-9]", "", value.lower())
-
-    # The caption already carries the title: leave it exactly as it is.
-    if _norm(title) and _norm(title) in _norm(stem):
-        return ""
-
-    # Reuse the quality the caption declares; only fall back to the resolved one.
-    quality_m = _CAPTION_QUALITY_RE.search(stem)
-    quality = quality_m.group(1).lower() if quality_m else str(info.get("quality") or "").strip()
-
-    safe_title = re.sub(r'[\\/:*?"<>|]', "", title)
-    safe_title = re.sub(r"\s+", ".", safe_title).strip(".")
-
-    parts = [p for p in (quality, safe_title, f"S{int(season):02d}E{int(episode):02d}") if p]
-    return ".".join(parts) + ext
-
-
 async def _group_targets(item: dict) -> list[dict]:
     """All failed-import rows that belong to the same split file."""
     chat_id = int(item["chat_id"])
@@ -164,7 +123,6 @@ async def _repair_parts(
     episode: int | None = None,
     quality: str,
     actor: str,
-    rename_caption: bool = True,
 ) -> dict:
     """Repair a whole split file: insert every sibling with the same group_key.
 
@@ -241,17 +199,6 @@ async def _repair_parts(
         if first_info is None:
             first_info = info
 
-        # A clean caption is what the next scan will read, so a conflictive
-        # series is renamed once the uploader confirms the title.
-        if rename_caption and not part_base and info.get("media_type") == "tv":
-            new_caption = _build_series_caption(info, target.get("caption") or "", file_name)
-            if new_caption and new_caption != (target.get("caption") or "").strip():
-                try:
-                    await edit_message(chat_id, msg_id, new_caption)
-                except Exception as e:
-                    LOGGER.warning(f"[imports] caption rename failed for {chat_id}/{msg_id}: {e}")
-                    warnings.append("The Telegram caption could not be renamed.")
-
     if first_info:
         start_single_media_catalog_sync(
             db,
@@ -283,7 +230,6 @@ class MapBody(BaseModel):
     season: int | None = None
     episode: int | None = None
     quality: str | None = None
-    rename_caption: bool = False
 
 
 class QualityBody(BaseModel):
@@ -448,7 +394,6 @@ async def map_import(item_id: str, body: MapBody, request: Request):
         episode=body.episode,
         quality=quality,
         actor=_current_user(request),
-        rename_caption=body.rename_caption,
     )
 
     if not result["ok"]:
