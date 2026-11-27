@@ -1587,14 +1587,6 @@ class Database:
         incoming_group_key = quality_to_update.get("group_key")
         replace_mode = SettingsManager.current().replace_mode
 
-        #----- A re-upload of the same release must not show twice, even when the
-        #----- second upload got a different group key (other caption/part name).
-        incoming_key = self._dup_key(quality_to_update)
-        existing_qualities = [
-            q for q in existing_qualities
-            if q.get("id") == quality_to_update.get("id") or self._dup_key(q) != incoming_key
-        ]
-
         if incoming_group_key:
             #----- Incoming is a split part.
             if replace_mode:
