@@ -1342,15 +1342,8 @@ async def manual_add_media_api(payload: dict) -> dict:
         except Exception:
             thumb_url = f"/thumb/{thumb_enc}"
 
-    #----- Split parts share one quality entry via a common group key. A single
-    #----- part added on its own still knows its part number, so it can join the
-    #----- group created by the other parts instead of becoming a lone stream.
-    if is_split:
-        group_key = f"manual:{primary['chat_id']}:{quality}:{secrets.token_hex(6)}"
-    elif primary.get("split_key"):
-        group_key = f"manual:{primary['chat_id']}:{primary['split_key']}"
-    else:
-        group_key = None
+    #----- Split parts share one quality entry via a common group key (upstream form)
+    group_key = f"manual:{primary['chat_id']}:{quality}:{secrets.token_hex(6)}" if is_split else None
 
     tv_extra = {}
     if media_type == "tv":
@@ -1380,7 +1373,7 @@ async def manual_add_media_api(payload: dict) -> dict:
             "quality": quality,
             "encoded_string": encoded,
             "group_key": group_key,
-            "part_number": index if is_split else (part.get("part_number") or None),
+            "part_number": index if is_split else None,
             "is_anime": False,
         })
         metadata_info.update(tv_extra)

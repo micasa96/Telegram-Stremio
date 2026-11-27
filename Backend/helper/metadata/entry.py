@@ -290,15 +290,14 @@ async def metadata(
     except Exception:
         encoded_string = None
 
-    # Group every part of one upload together. Quality is deliberately NOT part
-    # of the key: each part may parse a different (or no) quality from its caption.
-    group_key = f"{channel}:{split_base}" if split_base else None
+    # Same grouping key as upstream: channel + quality + split base.
+    group_key = f"{channel}:{quality}:{split_base}" if split_base else None
     # Single (non-split) .zip archives
     if group_key is None and filename and filename.lower().rstrip().endswith(".zip"):
         from Backend.helper.split_files import _normalize
 
         base = filename.rsplit(".", 1)[0]
-        group_key = f"{channel}:{_normalize(base)}.zip"
+        group_key = f"{channel}:{quality}:{_normalize(base)}.zip"
         part_number = 1
 
     anime_channel = _is_anime_channel(channel)
