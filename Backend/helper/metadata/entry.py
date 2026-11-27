@@ -292,6 +292,11 @@ async def metadata(
 
     # Same grouping key as upstream: channel + quality + split base.
     group_key = f"{channel}:{quality}:{split_base}" if split_base else None
+    if group_key:
+        LOGGER.info(
+            f"[Split] key='{group_key}' part={part_number} quality='{quality}' "
+            f"file='{file_name or filename}'"
+        )
     # Single (non-split) .zip archives
     if group_key is None and filename and filename.lower().rstrip().endswith(".zip"):
         from Backend.helper.split_files import _normalize
