@@ -16,6 +16,7 @@ from Backend.helper.bounded import BoundedDict
 from Backend.helper.encrypt import decode_string, encode_string
 from Backend.helper.modal import Episode, MovieSchema, QualityDetail, QualityPart, Season, TVShowSchema
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.split_files import strip_part_suffix
 from Backend.helper.task_manager import delete_message
 from Backend.logger import LOGGER
 
@@ -1341,9 +1342,13 @@ class Database:
         status: Optional[dict] = None, caption: str = ""
     ) -> Optional[ObjectId]:
 
-        name = self._display_name(name, metadata_info)
         group_key = metadata_info.get("group_key")
         part_number = metadata_info.get("part_number")
+
+        # A part's ".mkv.002" suffix is not part of the title it belongs to.
+        if group_key:
+            name = strip_part_suffix(name)
+        name = self._display_name(name, metadata_info)
 
         if group_key:
             part = {
